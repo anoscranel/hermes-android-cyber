@@ -12,6 +12,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -423,6 +424,10 @@ private fun HermesDrawerContent(
             ConnectionStatus.AUTH_EXPIRED,
             -> LocalHermesStatusColors.current.error
         }
+    // The left host (ModalDrawerSheet) supplies a Column; the manual end-side
+    // drawer (Surface) does not. Owning the Column here keeps the body correct
+    // in either host instead of stacking every child at the top.
+    Column {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.padding(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 2.dp),
@@ -510,5 +515,6 @@ private fun HermesDrawerContent(
             Text(stringResource(R.string.nav_drawer_support))
         }
         Spacer(modifier = Modifier.height(12.dp))
+    }
     }
 }

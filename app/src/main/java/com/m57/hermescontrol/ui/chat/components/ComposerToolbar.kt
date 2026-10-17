@@ -510,22 +510,26 @@ fun ComposerToolbar(
         // pill and the mic slot. A small dot in the corner lights while any
         // session has live activity on the server.
         Box {
-            FilledIconButton(
-                // combinedClickable on the modifier owns both tap and hold; the
-                // button's own onClick stays a no-op so taps cannot double-fire.
-                onClick = {},
-                colors = flatIconButtonColors(palette),
+            // Plain gesture-owning container, not FilledIconButton: a Button's
+            // internal clickable consumes the pointer events before a modifier
+            // combinedClickable ever sees them, which left the button dead.
+            // Same size/shape/colors as the neighboring controls.
+            Box(
                 modifier =
                     Modifier
                         .size(ControlSize)
+                        .clip(CircleShape)
+                        .background(palette.control)
                         .combinedClickable(
                             onClick = onSessionsTap,
                             onLongClick = onSessionsLongPress,
                         ).testTag("sessions_button"),
+                contentAlignment = Alignment.Center,
             ) {
                 Icon(
                     imageVector = Icons.Outlined.History,
                     contentDescription = stringResource(R.string.chat_open_sessions),
+                    tint = palette.onControl,
                 )
             }
             if (hasSessionActivity) {
