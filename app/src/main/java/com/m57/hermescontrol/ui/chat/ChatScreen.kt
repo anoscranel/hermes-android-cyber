@@ -139,6 +139,7 @@ import com.m57.hermescontrol.ui.common.CredentialWarningBanner
 import com.m57.hermescontrol.ui.common.HermesScaffold
 import com.m57.hermescontrol.ui.common.NavIcon
 import com.m57.hermescontrol.ui.model.components.ModelPickerDialog
+import com.m57.hermescontrol.ui.sessions.HistorySection
 import com.m57.hermescontrol.ui.settings.SettingsViewModel
 import com.m57.hermescontrol.util.ConnectorUrlValidator
 import kotlinx.coroutines.delay
@@ -249,7 +250,7 @@ fun ChatScreen(
     val scrollScope = rememberCoroutineScope()
     val scrollController = rememberChatScrollController(listState, scrollScope)
     var showContextSheet by remember { mutableStateOf(false) }
-    var showSessionsSheet by rememberSaveable { mutableStateOf(false) }
+    var sessionsSheetSection by rememberSaveable { mutableStateOf<HistorySection?>(null) }
     var pendingSavePath by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingSaveName by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingSaveMimeType by rememberSaveable { mutableStateOf<String?>(null) }
@@ -975,7 +976,8 @@ fun ChatScreen(
                 reasoningWireLevel = state.reasoningWireLevel,
                 pendingReasoningLevel = state.pendingReasoningLevel,
                 onModelTap = { viewModel.openModelPicker() },
-                onSessionsTap = { showSessionsSheet = true },
+                onSessionsTap = { sessionsSheetSection = HistorySection.CONVERSATIONS },
+                onAutomationsTap = { sessionsSheetSection = HistorySection.AUTOMATIONS },
                 onReasoningTap = { level -> viewModel.setReasoningLevel(level) },
                 canDisableReasoning = state.currentModelCapabilities?.can_disable_reasoning,
                 supportsReasoning = state.currentModelCapabilities?.reasoningSupport,
@@ -1083,8 +1085,11 @@ fun ChatScreen(
             )
         }
 
-        if (showSessionsSheet) {
-            SessionsSheet(onDismiss = { showSessionsSheet = false })
+        sessionsSheetSection?.let { section ->
+            SessionsSheet(
+                onDismiss = { sessionsSheetSection = null },
+                initialSection = section,
+            )
         }
 
         if (showContextSheet) {

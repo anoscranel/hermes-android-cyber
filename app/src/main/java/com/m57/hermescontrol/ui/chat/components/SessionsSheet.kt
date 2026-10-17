@@ -39,6 +39,7 @@ import com.m57.hermescontrol.R
 import com.m57.hermescontrol.data.model.SessionInfo
 import com.m57.hermescontrol.theme.LocalSpacing
 import com.m57.hermescontrol.ui.common.SearchBar
+import com.m57.hermescontrol.ui.sessions.HistorySection
 import com.m57.hermescontrol.ui.sessions.SessionsUiState
 import com.m57.hermescontrol.ui.sessions.SessionsViewModel
 import com.m57.hermescontrol.ui.sessions.activityEpochSeconds
@@ -55,13 +56,24 @@ import com.m57.hermescontrol.ui.sessions.toSessionInfo
 @Composable
 fun SessionsSheet(
     onDismiss: () -> Unit,
+    initialSection: HistorySection = HistorySection.CONVERSATIONS,
     viewModel: SessionsViewModel = viewModel { SessionsViewModel() },
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val uiState by viewModel.uiState.collectAsState()
     val spacing = LocalSpacing.current
 
-    LaunchedEffect(Unit) { viewModel.loadSessions() }
+    // The automations composer button opens the same sheet pre-filtered to
+    // cron-sourced runs; selectSection must run before any load so the first
+    // page is fetched with the right source filter. selectSection already
+    // calls loadSessions() internally when the section changes (fresh VM +
+    // AUTOMATIONS), so only load explicitly when it early-returned (the
+    // CONVERSATIONS default no-op) — avoids a redundant page-0 fetch.
+    LaunchedEffect(Unit) {
+        val wasDefault = viewModel.uiState.value.section == initialSection
+        viewModel.selectSection(initialSection)
+        if (wasDefault) viewModel.loadSessions()
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,

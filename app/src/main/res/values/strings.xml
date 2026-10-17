@@ -1585,6 +1585,7 @@
     <string name="channels_search_placeholder">Search channels…</string>
     <string name="chat_attach_file">Attach file</string>
     <string name="chat_open_sessions">All conversations</string>
+    <string name="chat_open_automations">Automation runs</string>
     <string name="chat_attachment_camera">Camera</string>
     <string name="chat_attachment_photos">Photos</string>
     <string name="chat_attachment_file">File</string>
