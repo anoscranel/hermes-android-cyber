@@ -117,6 +117,7 @@ import com.m57.hermescontrol.ui.chat.components.ReloginDialog
 import com.m57.hermescontrol.ui.chat.components.ReplyErrorCard
 import com.m57.hermescontrol.ui.chat.components.SearchBarRow
 import com.m57.hermescontrol.ui.chat.components.SessionIntegrationsSheet
+import com.m57.hermescontrol.ui.chat.components.SessionsSheet
 import com.m57.hermescontrol.ui.chat.components.SideQuestionSheet
 import com.m57.hermescontrol.ui.chat.components.SpeechRequest
 import com.m57.hermescontrol.ui.chat.components.SpeechText
@@ -248,6 +249,7 @@ fun ChatScreen(
     val scrollScope = rememberCoroutineScope()
     val scrollController = rememberChatScrollController(listState, scrollScope)
     var showContextSheet by remember { mutableStateOf(false) }
+    var showSessionsSheet by rememberSaveable { mutableStateOf(false) }
     var pendingSavePath by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingSaveName by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingSaveMimeType by rememberSaveable { mutableStateOf<String?>(null) }
@@ -973,7 +975,7 @@ fun ChatScreen(
                 reasoningWireLevel = state.reasoningWireLevel,
                 pendingReasoningLevel = state.pendingReasoningLevel,
                 onModelTap = { viewModel.openModelPicker() },
-                onSessionsTap = { NavigationController.navigateTo(HistoryScreen) },
+                onSessionsTap = { showSessionsSheet = true },
                 onReasoningTap = { level -> viewModel.setReasoningLevel(level) },
                 canDisableReasoning = state.currentModelCapabilities?.can_disable_reasoning,
                 supportsReasoning = state.currentModelCapabilities?.reasoningSupport,
@@ -1079,6 +1081,10 @@ fun ChatScreen(
                     }
                 },
             )
+        }
+
+        if (showSessionsSheet) {
+            SessionsSheet(onDismiss = { showSessionsSheet = false })
         }
 
         if (showContextSheet) {
