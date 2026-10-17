@@ -490,7 +490,9 @@ private fun SessionSheetRow(
                         false
                     }
 
-                    SwipeToDismissBoxValue.Settled -> true
+                    SwipeToDismissBoxValue.Settled -> {
+                        true
+                    }
                 }
             },
         )
@@ -502,14 +504,17 @@ private fun SessionSheetRow(
             val direction = dismissState.dismissDirection
             val (alignment, icon, tint) =
                 when (direction) {
-                    SwipeToDismissBoxValue.StartToEnd ->
+                    SwipeToDismissBoxValue.StartToEnd -> {
                         Triple(Alignment.CenterStart, Icons.Outlined.Edit, MaterialTheme.colorScheme.primary)
+                    }
 
-                    SwipeToDismissBoxValue.EndToStart ->
+                    SwipeToDismissBoxValue.EndToStart -> {
                         Triple(Alignment.CenterEnd, Icons.Outlined.Delete, MaterialTheme.colorScheme.error)
+                    }
 
-                    SwipeToDismissBoxValue.Settled ->
+                    SwipeToDismissBoxValue.Settled -> {
                         Triple(Alignment.Center, Icons.Outlined.Edit, MaterialTheme.colorScheme.surface)
+                    }
                 }
             Box(
                 modifier =
@@ -533,8 +538,7 @@ private fun SessionSheetRow(
                         .combinedClickable(
                             onClick = onClick,
                             onLongClick = { showActions = true },
-                        )
-                        .padding(horizontal = spacing.md, vertical = spacing.sm),
+                        ).padding(horizontal = spacing.md, vertical = spacing.sm),
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
