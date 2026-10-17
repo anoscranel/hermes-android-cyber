@@ -351,6 +351,15 @@ jobs:
       - name: Grant Execute Permission for Gradlew
         run: chmod +x gradlew
 
+      # The emulator needs ~7.4 GB for its userdata partition; a stock
+      # ubuntu-latest runner leaves ~4 GB free after Gradle + system images.
+      # Reclaim the preinstalled toolchains this job never touches.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/local/share/boost /opt/hostedtoolcache/CodeQL
+          docker image prune -a -f || true
+          df -h /
+
       # Enable KVM hardware acceleration on the Linux runner
       - name: Enable KVM group permissions
         run: |
