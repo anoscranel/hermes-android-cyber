@@ -21,6 +21,9 @@ import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.EventRepeat
+import androidx.compose.material.icons.outlined.Inventory2
+import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Search
@@ -103,6 +106,7 @@ fun SessionsSheet(
     onDismiss: () -> Unit,
     initialSection: HistorySection = HistorySection.CONVERSATIONS,
     currentSessionId: String? = null,
+    onOpenAutomations: () -> Unit = {},
     viewModel: SessionsViewModel = viewModel { SessionsViewModel() },
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -111,6 +115,7 @@ fun SessionsSheet(
 
     var searchVisible by remember { mutableStateOf(false) }
     var pinnedOnly by remember { mutableStateOf(false) }
+    var archivedOnly by remember { mutableStateOf(false) }
     val searchFocusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
 
@@ -166,6 +171,7 @@ fun SessionsSheet(
                             uiState = uiState,
                             currentSessionId = currentSessionId,
                             pinnedOnly = pinnedOnly,
+                            archivedOnly = archivedOnly,
                             onSessionTap = { sessionId ->
                                 // Remember the chat we are leaving so the toolbar can
                                 // offer a one-tap jump back.
@@ -211,12 +217,23 @@ fun SessionsSheet(
                 SessionsSheetToolbar(
                     backTarget = sheetBackTarget(uiState, currentSessionId),
                     pinnedOnly = pinnedOnly,
+                    archivedOnly = archivedOnly,
+                    showAutomationsShortcut = initialSection == HistorySection.CONVERSATIONS,
+                    currentSession =
+                        uiState.sessions.firstOrNull { it.id == currentSessionId },
                     onBackToLast = { target ->
                         NavigationController.openChatSession(target.id)
                         onDismiss()
                     },
                     onRefresh = { viewModel.loadSessions(forceRefresh = true) },
                     onTogglePinnedOnly = { pinnedOnly = !pinnedOnly },
+                    onToggleArchivedOnly = { archivedOnly = !archivedOnly },
+                    onAutomationsTap = onOpenAutomations,
+                    onRenameCurrent = { session ->
+                        viewModel.openRenameDialog(session.id, sheetDisplayTitle(session))
+                    },
+                    onPinCurrent = { session -> viewModel.togglePin(session.id) },
+                    onArchiveCurrent = { session -> viewModel.toggleArchive(session.id) },
                     onNewChat = {
                         NavigationController.openNewChat()
                         onDismiss()
@@ -230,14 +247,26 @@ fun SessionsSheet(
     }
 }
 
-/** Bottom action row: back-to-last (left), utilities (middle), search (right). */
+/**
+ * Bottom action row: back-to-last (left), utilities (middle), search (right).
+ * Includes an automations shortcut (since the composer button became a hold
+ * gesture), a current-chat quick-actions menu, and an archived-only filter.
+ */
 @Composable
 private fun SessionsSheetToolbar(
     backTarget: SessionInfo?,
     pinnedOnly: Boolean,
+    archivedOnly: Boolean,
+    showAutomationsShortcut: Boolean,
+    currentSession: SessionInfo?,
     onBackToLast: (SessionInfo) -> Unit,
     onRefresh: () -> Unit,
     onTogglePinnedOnly: () -> Unit,
+    onToggleArchivedOnly: () -> Unit,
+    onAutomationsTap: () -> Unit,
+    onRenameCurrent: (SessionInfo) -> Unit,
+    onPinCurrent: (SessionInfo) -> Unit,
+    onArchiveCurrent: (SessionInfo) -> Unit,
     onNewChat: () -> Unit,
     onSearchTap: () -> Unit,
 ) {
@@ -275,6 +304,89 @@ private fun SessionsSheetToolbar(
                         MaterialTheme.colorScheme.onSurfaceVariant
                     },
             )
+        }
+        IconButton(onClick = onToggleArchivedOnly) {
+            Icon(
+                imageVector = Icons.Outlined.Inventory2,
+                contentDescription = stringResource(R.string.sessions_sheet_archived_only),
+                tint =
+                    if (archivedOnly) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+            )
+        }
+        if (showAutomationsShortcut) {
+            IconButton(
+                onClick = onAutomationsTap,
+                modifier = Modifier.testTag("sessions_sheet_automations"),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.EventRepeat,
+                    contentDescription = stringResource(R.string.chat_open_automations),
+                )
+            }
+        }
+        if (currentSession != null) {
+            var showCurrentActions by remember { mutableStateOf(false) }
+            Box {
+                IconButton(
+                    onClick = { showCurrentActions = true },
+                    modifier = Modifier.testTag("sessions_sheet_current_actions"),
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.MoreVert,
+                        contentDescription = stringResource(R.string.sessions_sheet_current_actions),
+                    )
+                }
+                DropdownMenu(
+                    expanded = showCurrentActions,
+                    onDismissRequest = { showCurrentActions = false },
+                ) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.sessions_rename_title)) },
+                        onClick = {
+                            showCurrentActions = false
+                            onRenameCurrent(currentSession)
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                stringResource(
+                                    if (currentSession.pinned == true) {
+                                        R.string.sessions_action_unpin
+                                    } else {
+                                        R.string.sessions_action_pin
+                                    },
+                                ),
+                            )
+                        },
+                        onClick = {
+                            showCurrentActions = false
+                            onPinCurrent(currentSession)
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                stringResource(
+                                    if (currentSession.archived == true) {
+                                        R.string.sessions_action_unarchive
+                                    } else {
+                                        R.string.sessions_action_archive
+                                    },
+                                ),
+                            )
+                        },
+                        onClick = {
+                            showCurrentActions = false
+                            onArchiveCurrent(currentSession)
+                        },
+                    )
+                }
+            }
         }
         IconButton(onClick = onNewChat) {
             Icon(
@@ -335,6 +447,7 @@ private fun SessionsSheetList(
     uiState: SessionsUiState,
     currentSessionId: String?,
     pinnedOnly: Boolean,
+    archivedOnly: Boolean,
     onSessionTap: (String) -> Unit,
     onRename: (SessionInfo) -> Unit,
     onTogglePin: (SessionInfo) -> Unit,
@@ -360,14 +473,22 @@ private fun SessionsSheetList(
     }
 
     val displaySessions: List<SessionInfo> =
-        remember(uiState.isSearchMode, uiState.sessions, uiState.searchResults, pinnedOnly) {
+        remember(uiState.isSearchMode, uiState.sessions, uiState.searchResults, pinnedOnly, archivedOnly) {
             val base =
                 if (uiState.isSearchMode) {
                     uiState.searchResults.map { it.toSessionInfo() }
                 } else {
                     uiState.sessions
                 }
-            if (pinnedOnly) base.filter { it.pinned == true } else base
+            // Archived sessions stay out of the normal list entirely; the
+            // archived-only toggle flips the list to just them.
+            val visible =
+                if (archivedOnly) {
+                    base.filter { it.archived == true }
+                } else {
+                    base.filter { it.archived != true }
+                }
+            if (pinnedOnly) visible.filter { it.pinned == true } else visible
         }
 
     // Pinned first, then the rest; both groups keep their server order.
@@ -474,14 +595,15 @@ private fun SessionSheetRow(
     val playedAt = formatPlayedAt(session.activityEpochSeconds())
     var showActions by remember { mutableStateOf(false) }
 
-    // Swipe right reveals rename (StartToEnd), swipe left reveals delete (EndToStart).
-    // Both snap back without removing the row — the follow-up happens via dialogs.
+    // Swipe right opens the actions menu (rename / pin / archive), swipe left
+    // asks to delete. Both snap back without removing the row — the follow-up
+    // happens via the menu or the dialogs.
     val dismissState =
         rememberSwipeToDismissBoxState(
             confirmValueChange = { value ->
                 when (value) {
                     SwipeToDismissBoxValue.StartToEnd -> {
-                        onRename()
+                        showActions = true
                         false
                     }
 

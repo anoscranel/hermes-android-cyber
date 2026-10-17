@@ -34,7 +34,6 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.outlined.EventRepeat
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material3.CircularProgressIndicator
@@ -110,7 +109,7 @@ fun ComposerToolbar(
     onReasoningSelected: (String?) -> Unit,
     onMicTap: () -> Unit,
     onSessionsTap: () -> Unit = {},
-    onAutomationsTap: () -> Unit = {},
+    onSessionsLongPress: () -> Unit = {},
     hasSessionActivity: Boolean = false,
     modifier: Modifier = Modifier,
     canSend: Boolean = false,
@@ -506,27 +505,23 @@ fun ComposerToolbar(
             }
         }
 
-        // Automations button — same sessions sheet pre-filtered to cron runs,
-        // sits left of the sessions button.
-        FilledIconButton(
-            onClick = onAutomationsTap,
-            colors = flatIconButtonColors(palette),
-            modifier = Modifier.size(ControlSize).testTag("automations_button"),
-        ) {
-            Icon(
-                imageVector = Icons.Outlined.EventRepeat,
-                contentDescription = stringResource(R.string.chat_open_automations),
-            )
-        }
-
-        // Sessions button — full-screen conversation history with search, sits
-        // between the model pill and the mic slot. A small dot in the corner
-        // lights while any session has live activity on the server.
+        // Sessions button — tap opens the conversations sheet, hold opens the
+        // same sheet pre-filtered to automation runs. Sits between the model
+        // pill and the mic slot. A small dot in the corner lights while any
+        // session has live activity on the server.
         Box {
             FilledIconButton(
-                onClick = onSessionsTap,
+                // combinedClickable on the modifier owns both tap and hold; the
+                // button's own onClick stays a no-op so taps cannot double-fire.
+                onClick = {},
                 colors = flatIconButtonColors(palette),
-                modifier = Modifier.size(ControlSize).testTag("sessions_button"),
+                modifier =
+                    Modifier
+                        .size(ControlSize)
+                        .combinedClickable(
+                            onClick = onSessionsTap,
+                            onLongClick = onSessionsLongPress,
+                        ).testTag("sessions_button"),
             ) {
                 Icon(
                     imageVector = Icons.Outlined.History,

@@ -24,6 +24,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DrawerSide
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
@@ -221,6 +222,7 @@ fun MainNavigation(sessionId: String? = null) {
 
     val currentScreen = backStack.lastOrNull() ?: startScreen
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val endDrawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
 
     // Single source of truth for drawer gestures (issue #619).
@@ -274,123 +276,55 @@ fun MainNavigation(sessionId: String? = null) {
                 ModalDrawerSheet(
                     modifier = Modifier.verticalScroll(rememberScrollState()),
                 ) {
-                    val connectionStatus by HermesWsClient.connectionStatus.collectAsState()
-                    val statusColor =
-                        when (connectionStatus) {
-                            ConnectionStatus.CONNECTED -> LocalHermesStatusColors.current.success
-
-                            ConnectionStatus.CONNECTING,
-                            ConnectionStatus.RECONNECTING,
-                            -> LocalHermesStatusColors.current.warning
-
-                            ConnectionStatus.DISCONNECTED,
-                            ConnectionStatus.NO_NETWORK,
-                            ConnectionStatus.AUTH_EXPIRED,
-                            -> LocalHermesStatusColors.current.error
-                        }
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 2.dp),
-                    ) {
-                        Text(
-                            text = stringResource(R.string.nav_drawer_title),
-                            style =
-                                MaterialTheme.typography.headlineSmall.copy(
-                                    fontWeight = FontWeight.Bold,
-                                ),
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Box(
-                            modifier =
-                                Modifier
-                                    .size(10.dp)
-                                    .background(color = statusColor, shape = CircleShape),
-                        )
-                    }
-                    Text(
-                        text = stringResource(R.string.nav_drawer_subtitle),
-                        modifier = Modifier.padding(start = 16.dp, bottom = 8.dp, end = 16.dp),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    HermesDrawerContent(
+                        sections = listOf(DrawerSection.CONVERSE, DrawerSection.AUTOMATE),
+                        currentScreen = currentScreen,
+                        hasToken = hasToken,
+                        showSupportButton = true,
+                        closeDrawer = { scope.launch { drawerState.close() } },
                     )
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-
-                    for (section in DrawerSection.entries) {
-                        Text(
-                            text = stringResource(section.titleRes).uppercase(),
-                            modifier =
-                                Modifier.padding(
-                                    start = 16.dp,
-                                    top = 8.dp,
-                                    bottom = 4.dp,
-                                    end = 16.dp,
-                                ),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        ScreenRegistry.ALL_SCREENS
-                            .filter { it.drawerSection == section && hasToken }
-                            .forEach { entry ->
-                                NavigationDrawerItem(
-                                    icon = { Icon(entry.icon, contentDescription = null) },
-                                    label = { Text(stringResource(entry.labelRes)) },
-                                    selected = currentScreen == entry.key,
-                                    onClick = {
-                                        scope.launch { drawerState.close() }
-                                        NavigationController.navigateTo(entry.key)
-                                    },
-                                    colors =
-                                        NavigationDrawerItemDefaults.colors(
-                                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                                            selectedTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                            selectedIconColor = MaterialTheme.colorScheme.primary,
-                                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        ),
-                                )
-                            }
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                    Spacer(modifier = Modifier.height(12.dp))
-                    FilledTonalButton(
-                        onClick = {
-                            scope.launch { drawerState.close() }
-                            runCatching {
-                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(KO_FI_URL)))
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                    ) {
-                        Icon(
-                            Icons.Filled.Favorite,
-                            contentDescription = null,
-                            modifier = Modifier.size(ButtonDefaults.IconSize),
-                        )
-                        Spacer(modifier = Modifier.width(ButtonDefaults.IconSpacing))
-                        Text(stringResource(R.string.nav_drawer_support))
-                    }
-                    Spacer(modifier = Modifier.height(12.dp))
                 }
             },
         ) {
-            Scaffold(
-                contentWindowInsets = WindowInsets.navigationBars,
-            ) { paddingValues ->
-                NavDisplay(
-                    backStack = backStack,
-                    onBack = { NavigationController.goBack() },
-                    entryProvider =
-                        appEntryProvider(sessionId, openDrawer),
-                    modifier =
-                        Modifier
-                            .padding(paddingValues)
-                            .consumeWindowInsets(paddingValues)
-                            .fillMaxSize(),
-                )
+            // Right-hand drawer: the configure/inspect half of the registry,
+            // mirrored to the end side so swiping left opens it. Nesting keeps
+            // the start drawer untouched (only one ModalNavigationDrawer may
+            // own each side).
+            ModalNavigationDrawer(
+                drawerState = endDrawerState,
+                gesturesEnabled = gestureController.enabled,
+                drawerSide = DrawerSide.End,
+                drawerContent = {
+                    ModalDrawerSheet(
+                        modifier = Modifier.verticalScroll(rememberScrollState()),
+                        drawerState = endDrawerState,
+                        drawerSide = DrawerSide.End,
+                    ) {
+                        HermesDrawerContent(
+                            sections = listOf(DrawerSection.CONFIGURE, DrawerSection.INSPECT),
+                            currentScreen = currentScreen,
+                            hasToken = hasToken,
+                            showSupportButton = false,
+                            closeDrawer = { scope.launch { endDrawerState.close() } },
+                        )
+                    }
+                },
+            ) {
+                Scaffold(
+                    contentWindowInsets = WindowInsets.navigationBars,
+                ) { paddingValues ->
+                    NavDisplay(
+                        backStack = backStack,
+                        onBack = { NavigationController.goBack() },
+                        entryProvider =
+                            appEntryProvider(sessionId, openDrawer),
+                        modifier =
+                            Modifier
+                                .padding(paddingValues)
+                                .consumeWindowInsets(paddingValues)
+                                .fillMaxSize(),
+                    )
+                }
             }
         }
 
@@ -401,5 +335,124 @@ fun MainNavigation(sessionId: String? = null) {
                 onDismiss = { WhatsNewNotice.dismiss() },
             )
         }
+    }
+}
+
+/**
+ * Shared drawer body for both sides: header with the live connection dot, the
+ * requested registry sections in order, and (left drawer only) the support
+ * button. Items navigate through the singleton [NavigationController] and then
+ * close whichever drawer they came from via [closeDrawer].
+ */
+@Composable
+private fun HermesDrawerContent(
+    sections: List<DrawerSection>,
+    currentScreen: NavKey,
+    hasToken: Boolean,
+    showSupportButton: Boolean,
+    closeDrawer: () -> Unit,
+) {
+    val context = LocalContext.current
+    val connectionStatus by HermesWsClient.connectionStatus.collectAsState()
+    val statusColor =
+        when (connectionStatus) {
+            ConnectionStatus.CONNECTED -> LocalHermesStatusColors.current.success
+
+            ConnectionStatus.CONNECTING,
+            ConnectionStatus.RECONNECTING,
+            -> LocalHermesStatusColors.current.warning
+
+            ConnectionStatus.DISCONNECTED,
+            ConnectionStatus.NO_NETWORK,
+            ConnectionStatus.AUTH_EXPIRED,
+            -> LocalHermesStatusColors.current.error
+        }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.padding(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 2.dp),
+    ) {
+        Text(
+            text = stringResource(R.string.nav_drawer_title),
+            style =
+                MaterialTheme.typography.headlineSmall.copy(
+                    fontWeight = FontWeight.Bold,
+                ),
+            color = MaterialTheme.colorScheme.primary,
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Box(
+            modifier =
+                Modifier
+                    .size(10.dp)
+                    .background(color = statusColor, shape = CircleShape),
+        )
+    }
+    Text(
+        text = stringResource(R.string.nav_drawer_subtitle),
+        modifier = Modifier.padding(start = 16.dp, bottom = 8.dp, end = 16.dp),
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+    for (section in sections) {
+        Text(
+            text = stringResource(section.titleRes).uppercase(),
+            modifier =
+                Modifier.padding(
+                    start = 16.dp,
+                    top = 8.dp,
+                    bottom = 4.dp,
+                    end = 16.dp,
+                ),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontWeight = FontWeight.SemiBold,
+        )
+        ScreenRegistry.ALL_SCREENS
+            .filter { it.drawerSection == section && hasToken }
+            .forEach { entry ->
+                NavigationDrawerItem(
+                    icon = { Icon(entry.icon, contentDescription = null) },
+                    label = { Text(stringResource(entry.labelRes)) },
+                    selected = currentScreen == entry.key,
+                    onClick = {
+                        closeDrawer()
+                        NavigationController.navigateTo(entry.key)
+                    },
+                    colors =
+                        NavigationDrawerItemDefaults.colors(
+                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                            selectedTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            selectedIconColor = MaterialTheme.colorScheme.primary,
+                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        ),
+                )
+            }
+    }
+
+    if (showSupportButton) {
+        Spacer(modifier = Modifier.height(8.dp))
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        Spacer(modifier = Modifier.height(12.dp))
+        FilledTonalButton(
+            onClick = {
+                closeDrawer()
+                runCatching {
+                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(KO_FI_URL)))
+                }
+            },
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        ) {
+            Icon(
+                Icons.Filled.Favorite,
+                contentDescription = null,
+                modifier = Modifier.size(ButtonDefaults.IconSize),
+            )
+            Spacer(modifier = Modifier.width(ButtonDefaults.IconSpacing))
+            Text(stringResource(R.string.nav_drawer_support))
+        }
+        Spacer(modifier = Modifier.height(12.dp))
     }
 }

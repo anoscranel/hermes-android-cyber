@@ -991,7 +991,8 @@ fun ChatScreen(
                 pendingReasoningLevel = state.pendingReasoningLevel,
                 onModelTap = { viewModel.openModelPicker() },
                 onSessionsTap = { sessionsSheetSection = HistorySection.CONVERSATIONS },
-                onAutomationsTap = { sessionsSheetSection = HistorySection.AUTOMATIONS },
+                onSessionsLongPress = { sessionsSheetSection = HistorySection.AUTOMATIONS },
+                onSwipeUp = { sessionsSheetSection = HistorySection.CONVERSATIONS },
                 hasSessionActivity = hasSessionActivity,
                 onReasoningTap = { level -> viewModel.setReasoningLevel(level) },
                 canDisableReasoning = state.currentModelCapabilities?.can_disable_reasoning,
@@ -1105,6 +1106,7 @@ fun ChatScreen(
                 onDismiss = { sessionsSheetSection = null },
                 initialSection = section,
                 currentSessionId = state.currentSessionId,
+                onOpenAutomations = { sessionsSheetSection = HistorySection.AUTOMATIONS },
             )
         }
 

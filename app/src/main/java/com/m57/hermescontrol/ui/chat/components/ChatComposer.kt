@@ -15,6 +15,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.content.ReceiveContentListener
 import androidx.compose.foundation.content.contentReceiver
+import androidx.compose.foundation.gesture.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -65,6 +66,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -118,7 +120,8 @@ fun ChatInputBar(
     reasoningLevel: String? = null,
     onModelTap: () -> Unit = {},
     onSessionsTap: () -> Unit = {},
-    onAutomationsTap: () -> Unit = {},
+    onSessionsLongPress: () -> Unit = {},
+    onSwipeUp: () -> Unit = {},
     hasSessionActivity: Boolean = false,
     onReasoningTap: (String?) -> Unit = {},
     canDisableReasoning: Boolean? = null,
@@ -236,11 +239,26 @@ fun ChatInputBar(
         ) {
             // One floating card holds the whole composer: suggestions, attachments,
             // the input and the controls row. Flat fill, hairline edge, no shadow.
+            // A deliberate upward swipe on the card opens the sessions sheet; the
+            // threshold keeps typing scrolls from triggering it.
             Surface(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                        .pointerInput(onSwipeUp) {
+                            var dragDistance = 0f
+                            detectVerticalDragGestures(
+                                onVerticalDrag = { _, dragAmount ->
+                                    dragDistance += dragAmount
+                                },
+                                onDragEnd = {
+                                    if (dragDistance < -120f) onSwipeUp()
+                                    dragDistance = 0f
+                                },
+                                onDragCancel = { dragDistance = 0f },
+                            )
+                        },
                 shape = MaterialTheme.shapes.large,
                 color = palette.card,
                 border = BorderStroke(width = 1.dp, color = palette.cardBorder),
@@ -499,7 +517,7 @@ fun ChatInputBar(
                         onAttachTap = { showAttachmentTray = !showAttachmentTray },
                         onModelTap = onModelTap,
                         onSessionsTap = onSessionsTap,
-                        onAutomationsTap = onAutomationsTap,
+                        onSessionsLongPress = onSessionsLongPress,
                         hasSessionActivity = hasSessionActivity,
                         onReasoningSelected = onReasoningTap,
                         onMicTap = onMicTap,
