@@ -34,16 +34,17 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.m57.hermescontrol.NavigationController
 import com.m57.hermescontrol.R
 import com.m57.hermescontrol.data.model.SessionInfo
-import com.m57.hermescontrol.NavigationController
+import com.m57.hermescontrol.theme.LocalSpacing
 import com.m57.hermescontrol.ui.common.SearchBar
+import com.m57.hermescontrol.ui.sessions.SessionsUiState
 import com.m57.hermescontrol.ui.sessions.SessionsViewModel
 import com.m57.hermescontrol.ui.sessions.activityEpochSeconds
 import com.m57.hermescontrol.ui.sessions.cleanSearchSnippet
 import com.m57.hermescontrol.ui.sessions.formatPlayedAt
 import com.m57.hermescontrol.ui.sessions.toSessionInfo
-import com.m57.hermescontrol.theme.LocalSpacing
 
 /**
  * Quick-switcher bottom sheet: floats over the chat UI so tapping a session swaps the
@@ -85,6 +86,7 @@ fun SessionsSheet(
                         CircularProgressIndicator()
                     }
                 }
+
                 uiState.errorMessage != null && !uiState.isSearchMode -> {
                     Box(
                         modifier = Modifier.fillMaxWidth().weight(1f).padding(spacing.md),
@@ -97,6 +99,7 @@ fun SessionsSheet(
                         )
                     }
                 }
+
                 else -> {
                     SessionsSheetList(
                         uiState = uiState,
@@ -115,7 +118,7 @@ fun SessionsSheet(
 
 @Composable
 private fun SessionsSheetList(
-    uiState: com.m57.hermescontrol.ui.sessions.SessionsUiState,
+    uiState: SessionsUiState,
     onSessionTap: (String) -> Unit,
     onLoadMoreSearch: () -> Unit,
     modifier: Modifier = Modifier,
