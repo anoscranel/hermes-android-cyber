@@ -1,6 +1,7 @@
 package com.m57.hermescontrol.ui.chat.components
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,25 +11,52 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.Undo
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.PushPin
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
@@ -48,20 +76,43 @@ import com.m57.hermescontrol.ui.sessions.formatPlayedAt
 import com.m57.hermescontrol.ui.sessions.toSessionInfo
 
 /**
+ * Remembers where the sheet left off across opens within the process: the search
+ * query and the list scroll position. A plain object is fine here — the sheet is
+ * transient UI state, not data that must survive process death.
+ */
+private object SessionsSheetMemory {
+    var query: String = ""
+    var scrollIndex: Int = 0
+    var scrollOffset: Int = 0
+    var previousSessionId: String? = null
+}
+
+/**
  * Quick-switcher bottom sheet: floats over the chat UI so tapping a session swaps the
  * active chat in place via [NavigationController.openChatSession] instead of navigating
  * away. Owns its own [SessionsViewModel] (all-default ctor) scoped to the sheet.
+ *
+ * Row gestures: swipe right = rename dialog, swipe left = delete with confirmation,
+ * long-press = pin/archive quick actions. Pinned sessions sort first with a divider.
+ * Bottom toolbar: back-to-last, refresh, pinned-only filter, new chat, and a search
+ * button that swaps the toolbar for the search field (focus + keyboard only then).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SessionsSheet(
     onDismiss: () -> Unit,
     initialSection: HistorySection = HistorySection.CONVERSATIONS,
+    currentSessionId: String? = null,
     viewModel: SessionsViewModel = viewModel { SessionsViewModel() },
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val uiState by viewModel.uiState.collectAsState()
     val spacing = LocalSpacing.current
+
+    var searchVisible by remember { mutableStateOf(false) }
+    var pinnedOnly by remember { mutableStateOf(false) }
+    val searchFocusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
 
     // The automations composer button opens the same sheet pre-filtered to
     // cron-sourced runs; selectSection must run before any load so the first
@@ -73,6 +124,11 @@ fun SessionsSheet(
         val wasDefault = viewModel.uiState.value.section == initialSection
         viewModel.selectSection(initialSection)
         if (wasDefault) viewModel.loadSessions()
+        // Restore a remembered query without popping the keyboard: the field
+        // only takes focus when the user explicitly taps the search button.
+        if (SessionsSheetMemory.query.isNotBlank()) {
+            viewModel.setSearchQuery(SessionsSheetMemory.query)
+        }
     }
 
     ModalBottomSheet(
@@ -81,49 +137,195 @@ fun SessionsSheet(
         modifier = Modifier.testTag("sessions_sheet"),
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            SearchBar(
-                query = uiState.searchQuery,
-                onQueryChange = viewModel::setSearchQuery,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = spacing.md),
-                placeholder = stringResource(R.string.sessions_search_placeholder),
-            )
-            Spacer(modifier = Modifier.height(spacing.sm))
-
-            when {
-                uiState.isLoading && !uiState.isSearchMode -> {
-                    Box(
-                        modifier = Modifier.fillMaxWidth().weight(1f),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        CircularProgressIndicator()
+            Box(modifier = Modifier.weight(1f)) {
+                when {
+                    uiState.isLoading && !uiState.isSearchMode -> {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            CircularProgressIndicator()
+                        }
                     }
-                }
 
-                uiState.errorMessage != null && !uiState.isSearchMode -> {
-                    Box(
-                        modifier = Modifier.fillMaxWidth().weight(1f).padding(spacing.md),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = uiState.errorMessage!!,
-                            color = MaterialTheme.colorScheme.error,
-                            style = MaterialTheme.typography.bodyMedium,
+                    uiState.errorMessage != null && !uiState.isSearchMode -> {
+                        Box(
+                            modifier = Modifier.fillMaxSize().padding(spacing.md),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = uiState.errorMessage!!,
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
+                    }
+
+                    else -> {
+                        SessionsSheetList(
+                            uiState = uiState,
+                            currentSessionId = currentSessionId,
+                            pinnedOnly = pinnedOnly,
+                            onSessionTap = { sessionId ->
+                                // Remember the chat we are leaving so the toolbar can
+                                // offer a one-tap jump back.
+                                if (currentSessionId != null && currentSessionId != sessionId) {
+                                    SessionsSheetMemory.previousSessionId = currentSessionId
+                                }
+                                NavigationController.openChatSession(sessionId)
+                                onDismiss()
+                            },
+                            onRename = { session ->
+                                viewModel.openRenameDialog(session.id, sheetDisplayTitle(session))
+                            },
+                            onTogglePin = { session -> viewModel.togglePin(session.id) },
+                            onToggleArchive = { session -> viewModel.toggleArchive(session.id) },
+                            onDelete = { session -> viewModel.requestDeleteSession(session.id) },
+                            onLoadMoreSearch = viewModel::loadMoreSearch,
+                            modifier = Modifier.fillMaxSize(),
                         )
                     }
                 }
-
-                else -> {
-                    SessionsSheetList(
-                        uiState = uiState,
-                        onSessionTap = { sessionId ->
-                            NavigationController.openChatSession(sessionId)
-                            onDismiss()
-                        },
-                        onLoadMoreSearch = viewModel::loadMoreSearch,
-                        modifier = Modifier.weight(1f),
-                    )
-                }
             }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+            if (searchVisible) {
+                SheetSearchBar(
+                    query = uiState.searchQuery,
+                    onQueryChange = {
+                        SessionsSheetMemory.query = it
+                        viewModel.setSearchQuery(it)
+                    },
+                    onClose = {
+                        searchVisible = false
+                        keyboardController?.hide()
+                        if (uiState.searchQuery.isNotBlank()) {
+                            SessionsSheetMemory.query = ""
+                            viewModel.setSearchQuery("")
+                        }
+                    },
+                    focusRequester = searchFocusRequester,
+                )
+            } else {
+                SessionsSheetToolbar(
+                    backTarget = sheetBackTarget(uiState, currentSessionId),
+                    pinnedOnly = pinnedOnly,
+                    onBackToLast = { target ->
+                        NavigationController.openChatSession(target.id)
+                        onDismiss()
+                    },
+                    onRefresh = { viewModel.loadSessions(forceRefresh = true) },
+                    onTogglePinnedOnly = { pinnedOnly = !pinnedOnly },
+                    onNewChat = {
+                        NavigationController.openNewChat()
+                        onDismiss()
+                    },
+                    onSearchTap = { searchVisible = true },
+                )
+            }
+        }
+
+        SessionsSheetDialogs(viewModel = viewModel, uiState = uiState)
+    }
+}
+
+/** Bottom action row: back-to-last (left), utilities (middle), search (right). */
+@Composable
+private fun SessionsSheetToolbar(
+    backTarget: SessionInfo?,
+    pinnedOnly: Boolean,
+    onBackToLast: (SessionInfo) -> Unit,
+    onRefresh: () -> Unit,
+    onTogglePinnedOnly: () -> Unit,
+    onNewChat: () -> Unit,
+    onSearchTap: () -> Unit,
+) {
+    val spacing = LocalSpacing.current
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = spacing.sm, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (backTarget != null) {
+            IconButton(
+                onClick = { onBackToLast(backTarget) },
+                modifier = Modifier.testTag("sessions_sheet_back_to_last"),
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Outlined.Undo,
+                    contentDescription = stringResource(R.string.sessions_sheet_back_to_last),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
+        IconButton(onClick = onRefresh) {
+            Icon(
+                imageVector = Icons.Outlined.Refresh,
+                contentDescription = stringResource(R.string.sessions_sheet_refresh),
+            )
+        }
+        IconButton(onClick = onTogglePinnedOnly) {
+            Icon(
+                imageVector = Icons.Outlined.PushPin,
+                contentDescription = stringResource(R.string.sessions_sheet_pinned_only),
+                tint =
+                    if (pinnedOnly) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+            )
+        }
+        IconButton(onClick = onNewChat) {
+            Icon(
+                imageVector = Icons.Outlined.Add,
+                contentDescription = stringResource(R.string.sessions_sheet_new_chat),
+            )
+        }
+        Spacer(modifier = Modifier.weight(1f))
+        IconButton(
+            onClick = onSearchTap,
+            modifier = Modifier.testTag("sessions_sheet_search_button"),
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Search,
+                contentDescription = stringResource(R.string.sessions_search_placeholder),
+            )
+        }
+    }
+}
+
+/** The search field that replaces the toolbar; grabs focus + keyboard on show. */
+@Composable
+private fun SheetSearchBar(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onClose: () -> Unit,
+    focusRequester: FocusRequester,
+) {
+    val spacing = LocalSpacing.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+
+    LaunchedEffect(Unit) {
+        focusRequester.requestFocus()
+        keyboardController?.show()
+    }
+
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = spacing.sm, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        SearchBar(
+            query = query,
+            onQueryChange = onQueryChange,
+            modifier = Modifier.weight(1f).focusRequester(focusRequester),
+            placeholder = stringResource(R.string.sessions_search_placeholder),
+        )
+        IconButton(onClick = onClose) {
+            Icon(
+                imageVector = Icons.Outlined.Close,
+                contentDescription = stringResource(R.string.action_cancel),
+            )
         }
     }
 }
@@ -131,21 +333,46 @@ fun SessionsSheet(
 @Composable
 private fun SessionsSheetList(
     uiState: SessionsUiState,
+    currentSessionId: String?,
+    pinnedOnly: Boolean,
     onSessionTap: (String) -> Unit,
+    onRename: (SessionInfo) -> Unit,
+    onTogglePin: (SessionInfo) -> Unit,
+    onToggleArchive: (SessionInfo) -> Unit,
+    onDelete: (SessionInfo) -> Unit,
     onLoadMoreSearch: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val listState = rememberLazyListState()
+    val listState =
+        rememberLazyListState(
+            initialFirstVisibleItemIndex = SessionsSheetMemory.scrollIndex,
+            initialFirstVisibleItemScrollOffset = SessionsSheetMemory.scrollOffset,
+        )
     val spacing = LocalSpacing.current
 
-    val displaySessions: List<SessionInfo> =
-        remember(uiState.isSearchMode, uiState.sessions, uiState.searchResults) {
-            if (uiState.isSearchMode) {
-                uiState.searchResults.map { it.toSessionInfo() }
-            } else {
-                uiState.sessions
+    // Persist scroll position continuously so a dismiss-by-tap-outside keeps it too.
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
+            .collect { (index, offset) ->
+                SessionsSheetMemory.scrollIndex = index
+                SessionsSheetMemory.scrollOffset = offset
             }
+    }
+
+    val displaySessions: List<SessionInfo> =
+        remember(uiState.isSearchMode, uiState.sessions, uiState.searchResults, pinnedOnly) {
+            val base =
+                if (uiState.isSearchMode) {
+                    uiState.searchResults.map { it.toSessionInfo() }
+                } else {
+                    uiState.sessions
+                }
+            if (pinnedOnly) base.filter { it.pinned == true } else base
         }
+
+    // Pinned first, then the rest; both groups keep their server order.
+    val pinnedSessions = remember(displaySessions) { displaySessions.filter { it.pinned == true } }
+    val unpinnedSessions = remember(displaySessions) { displaySessions.filter { it.pinned != true } }
 
     // Infinite scroll for search results only; the raw list pages itself internally.
     val shouldLoadMore by remember {
@@ -177,16 +404,47 @@ private fun SessionsSheetList(
         state = listState,
         modifier = modifier.fillMaxWidth(),
     ) {
-        items(displaySessions, key = { it.id }) { session ->
+        items(pinnedSessions, key = { it.id }) { session ->
             SessionSheetRow(
                 session = session,
                 onClick = { onSessionTap(session.id) },
+                onRename = { onRename(session) },
+                onTogglePin = { onTogglePin(session) },
+                onToggleArchive = { onToggleArchive(session) },
+                onDelete = { onDelete(session) },
             )
             HorizontalDivider(
                 modifier = Modifier.padding(horizontal = spacing.md),
                 color = MaterialTheme.colorScheme.outlineVariant,
             )
         }
+
+        // Divider between the pinned group and everything else.
+        if (pinnedSessions.isNotEmpty() && unpinnedSessions.isNotEmpty()) {
+            item(key = "pinned_divider") {
+                HorizontalDivider(
+                    thickness = 2.dp,
+                    color = MaterialTheme.colorScheme.outline,
+                    modifier = Modifier.testTag("sessions_sheet_pinned_divider"),
+                )
+            }
+        }
+
+        items(unpinnedSessions, key = { it.id }) { session ->
+            SessionSheetRow(
+                session = session,
+                onClick = { onSessionTap(session.id) },
+                onRename = { onRename(session) },
+                onTogglePin = { onTogglePin(session) },
+                onToggleArchive = { onToggleArchive(session) },
+                onDelete = { onDelete(session) },
+            )
+            HorizontalDivider(
+                modifier = Modifier.padding(horizontal = spacing.md),
+                color = MaterialTheme.colorScheme.outlineVariant,
+            )
+        }
+
         if (uiState.isSearching || uiState.isLoadingMoreSearch) {
             item {
                 Row(
@@ -200,56 +458,249 @@ private fun SessionsSheetList(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SessionSheetRow(
     session: SessionInfo,
     onClick: () -> Unit,
+    onRename: () -> Unit,
+    onTogglePin: () -> Unit,
+    onToggleArchive: () -> Unit,
+    onDelete: () -> Unit,
 ) {
     val spacing = LocalSpacing.current
-    val title =
-        session.title?.takeIf(String::isNotBlank)
-            ?: session.display_name?.takeIf(String::isNotBlank)
-            ?: stringResource(R.string.history_untitled)
+    val title = sheetDisplayTitle(session).ifBlank { stringResource(R.string.history_untitled) }
     val preview = session.preview?.takeIf(String::isNotBlank)?.let(::cleanSearchSnippet)
     val playedAt = formatPlayedAt(session.activityEpochSeconds())
+    var showActions by remember { mutableStateOf(false) }
 
-    Column(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .testTag("sessions_sheet_row_${session.id}")
-                .clickable(onClick = onClick)
-                .padding(horizontal = spacing.md, vertical = spacing.sm),
+    // Swipe right reveals rename (StartToEnd), swipe left reveals delete (EndToStart).
+    // Both snap back without removing the row — the follow-up happens via dialogs.
+    val dismissState =
+        rememberSwipeToDismissBoxState(
+            confirmValueChange = { value ->
+                when (value) {
+                    SwipeToDismissBoxValue.StartToEnd -> {
+                        onRename()
+                        false
+                    }
+
+                    SwipeToDismissBoxValue.EndToStart -> {
+                        onDelete()
+                        false
+                    }
+
+                    SwipeToDismissBoxValue.Settled -> true
+                }
+            },
+        )
+
+    SwipeToDismissBox(
+        state = dismissState,
+        modifier = Modifier.testTag("sessions_sheet_row_${session.id}"),
+        backgroundContent = {
+            val direction = dismissState.dismissDirection
+            val (alignment, icon, tint) =
+                when (direction) {
+                    SwipeToDismissBoxValue.StartToEnd ->
+                        Triple(Alignment.CenterStart, Icons.Outlined.Edit, MaterialTheme.colorScheme.primary)
+
+                    SwipeToDismissBoxValue.EndToStart ->
+                        Triple(Alignment.CenterEnd, Icons.Outlined.Delete, MaterialTheme.colorScheme.error)
+
+                    SwipeToDismissBoxValue.Settled ->
+                        Triple(Alignment.Center, Icons.Outlined.Edit, MaterialTheme.colorScheme.surface)
+                }
+            Box(
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .background(tint.copy(alpha = 0.15f))
+                        .padding(horizontal = spacing.md),
+                contentAlignment = alignment,
+            ) {
+                if (direction != SwipeToDismissBoxValue.Settled) {
+                    Icon(imageVector = icon, contentDescription = null, tint = tint)
+                }
+            }
+        },
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(spacing.sm),
-        ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleSmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-            playedAt?.let {
-                Text(
-                    text = it,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+        Box {
+            Column(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .combinedClickable(
+                            onClick = onClick,
+                            onLongClick = { showActions = true },
+                        )
+                        .padding(horizontal = spacing.md, vertical = spacing.sm),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(spacing.sm),
+                ) {
+                    if (session.pinned == true) {
+                        Icon(
+                            imageVector = Icons.Outlined.PushPin,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(14.dp),
+                        )
+                    }
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    playedAt?.let {
+                        Text(
+                            text = it,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                preview?.let {
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+
+            DropdownMenu(
+                expanded = showActions,
+                onDismissRequest = { showActions = false },
+            ) {
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            stringResource(
+                                if (session.pinned == true) {
+                                    R.string.sessions_action_unpin
+                                } else {
+                                    R.string.sessions_action_pin
+                                },
+                            ),
+                        )
+                    },
+                    onClick = {
+                        showActions = false
+                        onTogglePin()
+                    },
+                )
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            stringResource(
+                                if (session.archived == true) {
+                                    R.string.sessions_action_unarchive
+                                } else {
+                                    R.string.sessions_action_archive
+                                },
+                            ),
+                        )
+                    },
+                    onClick = {
+                        showActions = false
+                        onToggleArchive()
+                    },
                 )
             }
         }
-        preview?.let {
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = it,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
     }
 }
+
+/** Rename + delete-confirm dialogs, mirroring the ones on the full Sessions screen. */
+@Composable
+private fun SessionsSheetDialogs(
+    viewModel: SessionsViewModel,
+    uiState: SessionsUiState,
+) {
+    val renamingId = uiState.renamingSessionId
+    if (renamingId != null) {
+        AlertDialog(
+            onDismissRequest = { viewModel.closeRenameDialog() },
+            title = { Text(stringResource(R.string.sessions_rename_title)) },
+            text = {
+                OutlinedTextField(
+                    value = uiState.renameDraft,
+                    onValueChange = { viewModel.updateRenameDraft(it) },
+                    singleLine = true,
+                    label = { Text(stringResource(R.string.sessions_rename_hint)) },
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { viewModel.renameSession(renamingId, uiState.renameDraft) },
+                    enabled = uiState.renameDraft.isNotBlank(),
+                ) {
+                    Text(stringResource(R.string.sessions_action_rename))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.closeRenameDialog() }) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+            },
+        )
+    }
+
+    val deleteId = uiState.sessionToDeleteConfirm
+    if (deleteId != null) {
+        val sessionTitle =
+            uiState.sessions
+                .find { it.id == deleteId }
+                ?.let(::sheetDisplayTitle)
+                ?.ifBlank { null }
+                ?: stringResource(R.string.history_untitled)
+        AlertDialog(
+            onDismissRequest = { viewModel.cancelDeleteSession() },
+            title = { Text(stringResource(R.string.sessions_delete_title)) },
+            text = { Text(stringResource(R.string.sessions_delete_message, sessionTitle)) },
+            confirmButton = {
+                Button(
+                    onClick = { viewModel.confirmDeleteSession() },
+                    colors =
+                        ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error,
+                        ),
+                ) {
+                    Text(stringResource(R.string.action_delete))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.cancelDeleteSession() }) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+            },
+        )
+    }
+}
+
+/**
+ * The session the toolbar's back button jumps to: the chat the last swap left,
+ * if it is still visible in the current list and is not the active chat.
+ */
+private fun sheetBackTarget(
+    uiState: SessionsUiState,
+    currentSessionId: String?,
+): SessionInfo? {
+    val previousId = SessionsSheetMemory.previousSessionId ?: return null
+    if (previousId == currentSessionId) return null
+    return uiState.sessions.find { it.id == previousId }
+}
+
+/** Raw title fields only — callers add the localized "Untitled" fallback. */
+private fun sheetDisplayTitle(session: SessionInfo): String =
+    session.title?.takeIf(String::isNotBlank)
+        ?: session.display_name?.takeIf(String::isNotBlank)
+        ?: ""

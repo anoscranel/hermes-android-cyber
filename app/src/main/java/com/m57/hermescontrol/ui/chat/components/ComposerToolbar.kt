@@ -111,6 +111,7 @@ fun ComposerToolbar(
     onMicTap: () -> Unit,
     onSessionsTap: () -> Unit = {},
     onAutomationsTap: () -> Unit = {},
+    hasSessionActivity: Boolean = false,
     modifier: Modifier = Modifier,
     canSend: Boolean = false,
     showSend: Boolean = canSend,
@@ -519,16 +520,29 @@ fun ComposerToolbar(
         }
 
         // Sessions button — full-screen conversation history with search, sits
-        // between the model pill and the mic slot.
-        FilledIconButton(
-            onClick = onSessionsTap,
-            colors = flatIconButtonColors(palette),
-            modifier = Modifier.size(ControlSize).testTag("sessions_button"),
-        ) {
-            Icon(
-                imageVector = Icons.Outlined.History,
-                contentDescription = stringResource(R.string.chat_open_sessions),
-            )
+        // between the model pill and the mic slot. A small dot in the corner
+        // lights while any session has live activity on the server.
+        Box {
+            FilledIconButton(
+                onClick = onSessionsTap,
+                colors = flatIconButtonColors(palette),
+                modifier = Modifier.size(ControlSize).testTag("sessions_button"),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.History,
+                    contentDescription = stringResource(R.string.chat_open_sessions),
+                )
+            }
+            if (hasSessionActivity) {
+                Box(
+                    modifier =
+                        Modifier
+                            .align(Alignment.TopEnd)
+                            .size(8.dp)
+                            .background(MaterialTheme.colorScheme.error, CircleShape)
+                            .testTag("sessions_button_activity_dot"),
+                )
+            }
         }
 
         // Flat slot — mic while idle. While a generation can be interrupted and a

@@ -1586,6 +1586,10 @@
     <string name="chat_attach_file">Attach file</string>
     <string name="chat_open_sessions">All conversations</string>
     <string name="chat_open_automations">Automation runs</string>
+    <string name="sessions_sheet_back_to_last">Back to previous chat</string>
+    <string name="sessions_sheet_refresh">Refresh sessions</string>
+    <string name="sessions_sheet_pinned_only">Show pinned only</string>
+    <string name="sessions_sheet_new_chat">New chat</string>
     <string name="chat_attachment_camera">Camera</string>
     <string name="chat_attachment_photos">Photos</string>
     <string name="chat_attachment_file">File</string>

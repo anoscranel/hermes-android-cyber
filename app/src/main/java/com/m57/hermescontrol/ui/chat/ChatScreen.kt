@@ -91,6 +91,7 @@ import com.m57.hermescontrol.data.model.AttachmentSource
 import com.m57.hermescontrol.data.model.reasoningSupport
 import com.m57.hermescontrol.data.session.ActiveSessionHolder
 import com.m57.hermescontrol.data.ws.ConnectionStatus
+import com.m57.hermescontrol.data.ws.HermesSessionLiveStatusSource
 import com.m57.hermescontrol.data.ws.HermesWsClient
 import com.m57.hermescontrol.notification.NotificationHelper
 import com.m57.hermescontrol.theme.LocalHermesStatusColors
@@ -251,6 +252,19 @@ fun ChatScreen(
     val scrollController = rememberChatScrollController(listState, scrollScope)
     var showContextSheet by remember { mutableStateOf(false) }
     var sessionsSheetSection by rememberSaveable { mutableStateOf<HistorySection?>(null) }
+    var hasSessionActivity by remember { mutableStateOf(false) }
+
+    // Slow-poll the server's active-session list while connected; a non-empty
+    // result lights the activity dot on the composer sessions button.
+    LaunchedEffect(state.connectionStatus) {
+        val source = HermesSessionLiveStatusSource()
+        while (state.connectionStatus == ConnectionStatus.CONNECTED) {
+            val snapshot = source.fetchActiveSessionsSnapshot()
+            hasSessionActivity = snapshot?.statusByStoredId?.isNotEmpty() == true
+            delay(30_000)
+        }
+        hasSessionActivity = false
+    }
     var pendingSavePath by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingSaveName by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingSaveMimeType by rememberSaveable { mutableStateOf<String?>(null) }
@@ -978,6 +992,7 @@ fun ChatScreen(
                 onModelTap = { viewModel.openModelPicker() },
                 onSessionsTap = { sessionsSheetSection = HistorySection.CONVERSATIONS },
                 onAutomationsTap = { sessionsSheetSection = HistorySection.AUTOMATIONS },
+                hasSessionActivity = hasSessionActivity,
                 onReasoningTap = { level -> viewModel.setReasoningLevel(level) },
                 canDisableReasoning = state.currentModelCapabilities?.can_disable_reasoning,
                 supportsReasoning = state.currentModelCapabilities?.reasoningSupport,
@@ -1089,6 +1104,7 @@ fun ChatScreen(
             SessionsSheet(
                 onDismiss = { sessionsSheetSection = null },
                 initialSection = section,
+                currentSessionId = state.currentSessionId,
             )
         }
 
