@@ -973,6 +973,7 @@ fun ChatScreen(
                 reasoningWireLevel = state.reasoningWireLevel,
                 pendingReasoningLevel = state.pendingReasoningLevel,
                 onModelTap = { viewModel.openModelPicker() },
+                onSessionsTap = { NavigationController.navigateTo(HistoryScreen) },
                 onReasoningTap = { level -> viewModel.setReasoningLevel(level) },
                 canDisableReasoning = state.currentModelCapabilities?.can_disable_reasoning,
                 supportsReasoning = state.currentModelCapabilities?.reasoningSupport,

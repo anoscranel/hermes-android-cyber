@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -107,6 +108,7 @@ fun ComposerToolbar(
     onModelTap: () -> Unit,
     onReasoningSelected: (String?) -> Unit,
     onMicTap: () -> Unit,
+    onSessionsTap: () -> Unit = {},
     modifier: Modifier = Modifier,
     canSend: Boolean = false,
     showSend: Boolean = canSend,
@@ -499,6 +501,19 @@ fun ComposerToolbar(
                     }
                 }
             }
+        }
+
+        // Sessions button — full-screen conversation history with search, sits
+        // between the model pill and the mic slot.
+        FilledIconButton(
+            onClick = onSessionsTap,
+            colors = flatIconButtonColors(palette),
+            modifier = Modifier.size(ControlSize).testTag("sessions_button"),
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.History,
+                contentDescription = stringResource(R.string.chat_open_sessions),
+            )
         }
 
         // Flat slot — mic while idle. While a generation can be interrupted and a
