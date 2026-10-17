@@ -5,12 +5,18 @@ import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -24,7 +30,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.DrawerSide
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
@@ -35,6 +40,7 @@ import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.NavigationDrawerItemDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
@@ -43,11 +49,14 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -222,7 +231,7 @@ fun MainNavigation(sessionId: String? = null) {
 
     val currentScreen = backStack.lastOrNull() ?: startScreen
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
-    val endDrawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    var endDrawerOpen by rememberSaveable { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     // Single source of truth for drawer gestures (issue #619).
@@ -268,6 +277,11 @@ fun MainNavigation(sessionId: String? = null) {
         NavigationController.goBack()
     }
 
+    // Manual end drawer: back button closes it before any navigation back.
+    BackHandler(enabled = endDrawerOpen) {
+        endDrawerOpen = false
+    }
+
     CompositionLocalProvider(LocalDrawerGestureController provides gestureController) {
         ModalNavigationDrawer(
             drawerState = drawerState,
@@ -287,29 +301,12 @@ fun MainNavigation(sessionId: String? = null) {
             },
         ) {
             // Right-hand drawer: the configure/inspect half of the registry,
-            // mirrored to the end side so swiping left opens it. Nesting keeps
-            // the start drawer untouched (only one ModalNavigationDrawer may
-            // own each side).
-            ModalNavigationDrawer(
-                drawerState = endDrawerState,
-                gesturesEnabled = gestureController.enabled,
-                drawerSide = DrawerSide.End,
-                drawerContent = {
-                    ModalDrawerSheet(
-                        modifier = Modifier.verticalScroll(rememberScrollState()),
-                        drawerState = endDrawerState,
-                        drawerSide = DrawerSide.End,
-                    ) {
-                        HermesDrawerContent(
-                            sections = listOf(DrawerSection.CONFIGURE, DrawerSection.INSPECT),
-                            currentScreen = currentScreen,
-                            hasToken = hasToken,
-                            showSupportButton = false,
-                            closeDrawer = { scope.launch { endDrawerState.close() } },
-                        )
-                    }
-                },
-            ) {
+            // mirrored to the end side so swiping left from the right edge
+            // opens it. This material3 build has no end-side ModalNavigationDrawer,
+            // so the end drawer is manual: an edge drag zone flips endDrawerOpen
+            // and an AnimatedVisibility slides the sheet in from the right over
+            // a scrim. The start drawer above stays untouched.
+            Box(modifier = Modifier.fillMaxSize()) {
                 Scaffold(
                     contentWindowInsets = WindowInsets.navigationBars,
                 ) { paddingValues ->
@@ -324,6 +321,65 @@ fun MainNavigation(sessionId: String? = null) {
                                 .consumeWindowInsets(paddingValues)
                                 .fillMaxSize(),
                     )
+                }
+
+                if (gestureController.enabled && !endDrawerOpen) {
+                    Box(
+                        modifier =
+                            Modifier
+                                .align(Alignment.CenterEnd)
+                                .fillMaxHeight()
+                                .width(24.dp)
+                                .pointerInput(Unit) {
+                                    var drag = 0f
+                                    detectHorizontalDragGestures(
+                                        onHorizontalDrag = { _, dragAmount ->
+                                            drag += dragAmount
+                                        },
+                                        onDragEnd = {
+                                            if (drag < -60f) endDrawerOpen = true
+                                            drag = 0f
+                                        },
+                                        onDragCancel = { drag = 0f },
+                                    )
+                                },
+                    )
+                }
+
+                if (endDrawerOpen) {
+                    Box(
+                        modifier =
+                            Modifier
+                                .fillMaxSize()
+                                .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.32f))
+                                .pointerInput(Unit) {
+                                    detectTapGestures(onTap = { endDrawerOpen = false })
+                                },
+                    )
+                }
+
+                AnimatedVisibility(
+                    visible = endDrawerOpen,
+                    modifier = Modifier.align(Alignment.CenterEnd),
+                    enter = slideInHorizontally(initialOffsetX = { it }),
+                    exit = slideOutHorizontally(targetOffsetX = { it }),
+                ) {
+                    Surface(
+                        modifier =
+                            Modifier
+                                .fillMaxHeight()
+                                .width(320.dp)
+                                .verticalScroll(rememberScrollState()),
+                        tonalElevation = 1.dp,
+                    ) {
+                        HermesDrawerContent(
+                            sections = listOf(DrawerSection.CONFIGURE, DrawerSection.INSPECT),
+                            currentScreen = currentScreen,
+                            hasToken = hasToken,
+                            showSupportButton = false,
+                            closeDrawer = { endDrawerOpen = false },
+                        )
+                    }
                 }
             }
         }
