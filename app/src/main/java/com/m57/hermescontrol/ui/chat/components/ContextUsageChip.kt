@@ -1,5 +1,6 @@
 package com.m57.hermescontrol.ui.chat.components
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -16,6 +17,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
@@ -206,23 +211,23 @@ fun ContextMeterRing(
                 .testTag("context_meter_ring"),
         contentAlignment = Alignment.Center,
     ) {
-        androidx.compose.foundation.Canvas(modifier = Modifier.size(44.dp)) {
+        Canvas(modifier = Modifier.size(44.dp)) {
             val stroke = 4.dp.toPx()
             val diameter = size.minDimension - stroke
             val topLeft =
-                androidx.compose.ui.geometry.Offset(
+                Offset(
                     (size.width - diameter) / 2f,
                     (size.height - diameter) / 2f,
                 )
-            val arcSize = androidx.compose.ui.geometry.Size(diameter, diameter)
+            val arcSize = Size(diameter, diameter)
             drawArc(
-                color = androidx.compose.ui.graphics.Color.Gray.copy(alpha = 0.25f),
+                color = Color.Gray.copy(alpha = 0.25f),
                 startAngle = 0f,
                 sweepAngle = 360f,
                 useCenter = false,
                 topLeft = topLeft,
                 size = arcSize,
-                style = androidx.compose.ui.graphics.drawscope.Stroke(width = stroke),
+                style = Stroke(width = stroke),
             )
             drawArc(
                 color = ringColor,
@@ -231,7 +236,7 @@ fun ContextMeterRing(
                 useCenter = false,
                 topLeft = topLeft,
                 size = arcSize,
-                style = androidx.compose.ui.graphics.drawscope.Stroke(width = stroke),
+                style = Stroke(width = stroke),
             )
         }
         Text(

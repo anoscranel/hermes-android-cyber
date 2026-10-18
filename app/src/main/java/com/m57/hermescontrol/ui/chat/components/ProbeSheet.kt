@@ -179,8 +179,11 @@ private fun ProbeRow(
     val dotColor =
         when (result?.status) {
             ProbeStatus.OK -> statusColors.success
+
             ProbeStatus.FAILED -> statusColors.error
+
             ProbeStatus.RUNNING -> statusColors.warning
+
             ProbeStatus.PENDING,
             null,
             -> MaterialTheme.colorScheme.outline

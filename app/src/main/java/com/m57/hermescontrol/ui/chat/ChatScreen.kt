@@ -941,8 +941,8 @@ fun ChatScreen(
                 TpsChip(tps = state.latestTps)
                 Spacer(modifier = Modifier.width(8.dp))
                 ContextMeterRing(
-                    usedTokens = state.usedTokens,
-                    fullTokens = state.fullTokens,
+                    usedTokens = state.usedContextTokens,
+                    fullTokens = state.fullContextTokens,
                     onClick = {
                         showContextSheet = true
                         viewModel.fetchSessionDetailBreakdown()

@@ -54,6 +54,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.m57.hermescontrol.R
 import com.m57.hermescontrol.data.model.ModelProvider
+import com.m57.hermescontrol.data.model.reasoningSupport
 import com.m57.hermescontrol.theme.LocalSpacing
 import com.m57.hermescontrol.ui.chat.CustomProviderDraft
 import com.m57.hermescontrol.ui.chat.ModelManagerViewModel

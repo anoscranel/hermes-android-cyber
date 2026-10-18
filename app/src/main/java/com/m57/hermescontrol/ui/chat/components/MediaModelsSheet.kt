@@ -31,10 +31,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.m57.hermescontrol.R
 import com.m57.hermescontrol.theme.LocalSpacing
 import com.m57.hermescontrol.ui.chat.MediaModelsViewModel
+import com.m57.hermescontrol.ui.common.ToastEffect
 
 /**
  * Non-text (auxiliary) model management: the server's aux task routing —
@@ -161,8 +163,7 @@ fun MediaModelsSheet(
                                     .clickable {
                                         viewModel.assign(task, provider, model)
                                         pickerTask = null
-                                    }
-                                    .padding(vertical = 8.dp)
+                                    }.padding(vertical = 8.dp)
                                     .testTag("media_pick_${provider}_$model"),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
