@@ -9,12 +9,14 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -168,3 +170,99 @@ internal fun formatTokens(tokens: Long): String =
             tokens.toString()
         }
     }
+
+/**
+ * Circular context-fill ring: same data as [ContextUsageChip] but a compact
+ * 44.dp ring with the percentage centered — lives at the right edge above the
+ * composer so it never eats the composer row's width. Same color thresholds
+ * (amber >= 70%, red >= 90%). Tap opens the context detail sheet.
+ */
+@Composable
+fun ContextMeterRing(
+    usedTokens: Long?,
+    fullTokens: Long?,
+    onClick: (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
+) {
+    val full = fullTokens
+    if (full == null || full <= 0L) return
+
+    val fraction = if (usedTokens != null) min(1f, usedTokens.toFloat() / full.toFloat()) else 0f
+    val pct = (fraction * 100).toInt()
+    val statusColors = LocalHermesStatusColors.current
+    val ringColor =
+        when {
+            usedTokens == null -> MaterialTheme.colorScheme.primary
+            pct >= 90 -> statusColors.error
+            pct >= 70 -> statusColors.warning
+            else -> MaterialTheme.colorScheme.primary
+        }
+
+    Box(
+        modifier =
+            modifier
+                .size(44.dp)
+                .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+                .testTag("context_meter_ring"),
+        contentAlignment = Alignment.Center,
+    ) {
+        androidx.compose.foundation.Canvas(modifier = Modifier.size(44.dp)) {
+            val stroke = 4.dp.toPx()
+            val diameter = size.minDimension - stroke
+            val topLeft =
+                androidx.compose.ui.geometry.Offset(
+                    (size.width - diameter) / 2f,
+                    (size.height - diameter) / 2f,
+                )
+            val arcSize = androidx.compose.ui.geometry.Size(diameter, diameter)
+            drawArc(
+                color = androidx.compose.ui.graphics.Color.Gray.copy(alpha = 0.25f),
+                startAngle = 0f,
+                sweepAngle = 360f,
+                useCenter = false,
+                topLeft = topLeft,
+                size = arcSize,
+                style = androidx.compose.ui.graphics.drawscope.Stroke(width = stroke),
+            )
+            drawArc(
+                color = ringColor,
+                startAngle = -90f,
+                sweepAngle = 360f * fraction,
+                useCenter = false,
+                topLeft = topLeft,
+                size = arcSize,
+                style = androidx.compose.ui.graphics.drawscope.Stroke(width = stroke),
+            )
+        }
+        Text(
+            text = "$pct%",
+            style = MaterialTheme.typography.labelSmall,
+            color = ringColor,
+        )
+    }
+}
+
+/**
+ * Tiny tokens/sec readout shown left of [ContextMeterRing]; hidden when no
+ * completion has reported a rate yet.
+ */
+@Composable
+fun TpsChip(
+    tps: Double?,
+    modifier: Modifier = Modifier,
+) {
+    val value = tps ?: return
+    Text(
+        text = stringResource(R.string.context_tps, value),
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier =
+            modifier
+                .background(
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    shape = RoundedCornerShape(8.dp),
+                ).padding(horizontal = 8.dp, vertical = 3.dp)
+                .testTag("context_tps_chip"),
+        maxLines = 1,
+    )
+}

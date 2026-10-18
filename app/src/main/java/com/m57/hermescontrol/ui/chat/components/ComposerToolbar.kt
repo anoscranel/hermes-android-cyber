@@ -111,6 +111,7 @@ fun ComposerToolbar(
     onMicTap: () -> Unit,
     onSessionsTap: () -> Unit = {},
     onModelManagerTap: () -> Unit = {},
+    onMediaModelsTap: () -> Unit = {},
     onSessionsLongPress: () -> Unit = {},
     hasSessionActivity: Boolean = false,
     modifier: Modifier = Modifier,
@@ -511,14 +512,18 @@ fun ComposerToolbar(
         // capability toggles and probe. Sits left of the sessions button.
         // Plain gesture-owning container like the sessions button (a Button's
         // internal clickable would eat the pointer events).
+        // Model manager — tap opens the text-model sheet, hold opens the
+        // non-text (auxiliary: vision/compression/titles) management window.
         Box(
             modifier =
                 Modifier
                     .size(ControlSize)
                     .clip(CircleShape)
                     .background(palette.control)
-                    .combinedClickable(onClick = onModelManagerTap)
-                    .testTag("model_manager_button"),
+                    .combinedClickable(
+                        onClick = onModelManagerTap,
+                        onLongClick = onMediaModelsTap,
+                    ).testTag("model_manager_button"),
             contentAlignment = Alignment.Center,
         ) {
             Icon(

@@ -1,5 +1,6 @@
 package com.m57.hermescontrol.ui.chat.components
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,8 +17,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.ExpandLess
+import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Science
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
@@ -29,6 +35,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -36,6 +43,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,30 +53,33 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.m57.hermescontrol.R
-import com.m57.hermescontrol.data.model.ModelCapabilities
 import com.m57.hermescontrol.data.model.ModelProvider
-import com.m57.hermescontrol.data.model.reasoningSupport
-import com.m57.hermescontrol.ui.chat.CapabilityOverride
-import com.m57.hermescontrol.ui.chat.ModelManagerUiState
+import com.m57.hermescontrol.theme.LocalSpacing
+import com.m57.hermescontrol.ui.chat.CustomProviderDraft
 import com.m57.hermescontrol.ui.chat.ModelManagerViewModel
 import com.m57.hermescontrol.ui.chat.filterProviders
 import com.m57.hermescontrol.ui.common.SearchBar
 import com.m57.hermescontrol.ui.common.ToastEffect
 
 /**
- * Model manager sheet: keyword-filtered provider/model catalog with per-model
- * capability toggles (reasoning / tools / vision / fast), staging of custom
- * models, "probe" = server-side capability refresh, and save-to-config.
- * Opened from the composer toolbar Tune button.
+ * Model manager (text models): per-provider catalog with keyword filter,
+ * expandable rows exposing capability toggles, per-row remove with confirm,
+ * add-model and add-provider flows (the catalog probe lives inside the add
+ * flows only), and a bottom toolbar with the probe-testing sheet entry and
+ * the Save that writes model_overrides/providers to the server config.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ModelManagerSheet(
     onDismiss: () -> Unit,
+    onOpenProbe: () -> Unit,
     viewModel: ModelManagerViewModel = viewModel { ModelManagerViewModel() },
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val spacing = LocalSpacing.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var showAddProvider by remember { mutableStateOf(false) }
+    var confirmRemove by remember { mutableStateOf<Pair<String, String>?>(null) }
 
     LaunchedEffect(Unit) {
         viewModel.load()
@@ -79,14 +90,12 @@ fun ModelManagerSheet(
         sheetState = sheetState,
         modifier = Modifier.testTag("model_manager_sheet"),
     ) {
-        Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+        Column(modifier = Modifier.fillMaxSize().padding(horizontal = spacing.md)) {
             Text(
                 text = stringResource(R.string.model_manager_title),
                 style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(vertical = spacing.sm),
             )
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Keyword filter over the whole catalog.
             SearchBar(
                 query = uiState.query,
                 onQueryChange = viewModel::setQuery,
@@ -98,104 +107,200 @@ fun ModelManagerSheet(
             Box(modifier = Modifier.weight(1f)) {
                 when {
                     uiState.isLoading -> {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator()
-                        }
+                        CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
                     }
 
-                    uiState.errorMessage != null && uiState.providers.isEmpty() -> {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text(
-                                text = uiState.errorMessage.orEmpty(),
-                                color = MaterialTheme.colorScheme.error,
-                                style = MaterialTheme.typography.bodyMedium,
-                            )
-                        }
+                    uiState.errorMessage != null -> {
+                        Text(
+                            text = uiState.errorMessage.orEmpty(),
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.align(Alignment.Center),
+                        )
                     }
 
                     else -> {
-                        ModelManagerList(
-                            uiState = uiState,
-                            viewModel = viewModel,
-                        )
+                        val visible =
+                            filterProviders(
+                                uiState.providers,
+                                uiState.customModels,
+                                uiState.hiddenModels,
+                                uiState.query,
+                            )
+                        LazyColumn(modifier = Modifier.fillMaxSize().testTag("model_manager_list")) {
+                            visible.forEach { (provider, models) ->
+                                item(key = "header_${provider.slug}") {
+                                    ProviderHeader(
+                                        provider = provider,
+                                        onAddModel = { viewModel.addCustomModel(provider.slug, it) },
+                                        onProbeProvider = { viewModel.probeCatalog() },
+                                    )
+                                }
+                                items(models, key = { "model_${provider.slug}_$it" }) { model ->
+                                    ModelRow(
+                                        provider = provider,
+                                        model = model,
+                                        viewModel = viewModel,
+                                        onRemove = { confirmRemove = provider.slug to model },
+                                    )
+                                }
+                            }
+                            item(key = "add_provider") {
+                                AddProviderRow(onClick = { showAddProvider = true })
+                            }
+                        }
                     }
                 }
             }
 
             HorizontalDivider()
-            ModelManagerToolbar(
-                uiState = uiState,
-                onProbe = viewModel::probeCatalog,
-                onSave = viewModel::save,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = spacing.sm),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                FilledTonalButton(
+                    onClick = onOpenProbe,
+                    modifier = Modifier.testTag("model_manager_open_probe"),
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Science,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Text(
+                        text = stringResource(R.string.model_manager_probe),
+                        modifier = Modifier.padding(start = 6.dp),
+                    )
+                }
+                Spacer(modifier = Modifier.weight(1f))
+                val dirty =
+                    uiState.overrides.isNotEmpty() ||
+                        uiState.customModels.isNotEmpty() ||
+                        uiState.hiddenModels.isNotEmpty() ||
+                        uiState.customProviders.isNotEmpty()
+                FilledTonalButton(
+                    onClick = { viewModel.save() },
+                    enabled = dirty && !uiState.isSaving,
+                    modifier = Modifier.testTag("model_manager_save"),
+                ) {
+                    if (uiState.isSaving) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp))
+                    } else {
+                        Icon(
+                            imageVector = Icons.Outlined.Refresh,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
+                    Text(
+                        text = stringResource(R.string.model_manager_save),
+                        modifier = Modifier.padding(start = 6.dp),
+                    )
+                }
+            }
         }
     }
 
-    ToastEffect(
-        toastMessage = uiState.toastMessage,
-        onClearToast = viewModel::toastShown,
-    )
+    if (showAddProvider) {
+        AddProviderDialog(
+            onDismiss = { showAddProvider = false },
+            onConfirm = { draft ->
+                viewModel.stageCustomProvider(draft)
+                showAddProvider = false
+            },
+        )
+    }
+
+    confirmRemove?.let { (slug, model) ->
+        AlertDialog(
+            onDismissRequest = { confirmRemove = null },
+            title = { Text(stringResource(R.string.model_manager_remove_title)) },
+            text = { Text(stringResource(R.string.model_manager_remove_message, model)) },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.stageRemoveModel(slug, model)
+                        confirmRemove = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                    modifier = Modifier.testTag("model_manager_remove_confirm"),
+                ) {
+                    Text(stringResource(R.string.action_delete))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmRemove = null }) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+            },
+        )
+    }
+
+    ToastEffect(toastMessage = uiState.toastMessage, onClearToast = viewModel::toastShown)
 }
 
 @Composable
-private fun ModelManagerList(
-    uiState: ModelManagerUiState,
-    viewModel: ModelManagerViewModel,
+private fun ProviderHeader(
+    provider: ModelProvider,
+    onAddModel: (String) -> Unit,
+    onProbeProvider: () -> Unit,
 ) {
-    val visible = filterProviders(uiState.providers, uiState.customModels, uiState.query)
-    if (visible.isEmpty()) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+    val spacing = LocalSpacing.current
+    var adding by remember { mutableStateOf(false) }
+    var draft by rememberSaveable { mutableStateOf("") }
+    Column(modifier = Modifier.fillMaxWidth().padding(top = spacing.sm)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                text = stringResource(R.string.model_manager_empty),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                text = provider.name ?: provider.slug,
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.weight(1f),
             )
-        }
-        return
-    }
-    LazyColumn(modifier = Modifier.fillMaxSize().testTag("model_manager_list")) {
-        visible.forEach { (provider, models) ->
-            item(key = "header_${provider.slug}") {
-                ProviderHeader(provider = provider)
-            }
-            items(models, key = { "model_${provider.slug}_$it" }) { model ->
-                ModelRow(
-                    provider = provider,
-                    model = model,
-                    capabilities = viewModel.effectiveCapabilities(provider.slug, model),
-                    isCustom = uiState.customModels.contains("${provider.slug}:$model"),
-                    onToggle = { transform -> viewModel.setOverride(provider.slug, model, transform) },
-                    onRemove = { viewModel.removeCustomModel(provider.slug, model) },
+            if (provider.authenticated == false) {
+                Text(
+                    text = stringResource(R.string.model_manager_unauthenticated),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
                 )
             }
-            item(key = "add_${provider.slug}") {
-                AddModelRow(providerSlug = provider.slug, onAdd = viewModel::addCustomModel)
+            IconButton(
+                onClick = { adding = !adding },
+                modifier = Modifier.testTag("model_add_toggle_${provider.slug}"),
+            ) {
+                Icon(
+                    imageVector = if (adding) Icons.Outlined.Close else Icons.Outlined.Add,
+                    contentDescription = stringResource(R.string.model_manager_add_model),
+                )
             }
         }
-    }
-}
-
-@Composable
-private fun ProviderHeader(provider: ModelProvider) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = provider.name,
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.primary,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        if (provider.authenticated == false) {
-            Text(
-                text = stringResource(R.string.model_manager_unauthenticated),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.padding(start = 8.dp),
-            )
+        if (adding) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value = draft,
+                    onValueChange = { draft = it },
+                    modifier = Modifier.weight(1f).testTag("model_add_field_${provider.slug}"),
+                    placeholder = { Text(stringResource(R.string.model_manager_add_hint)) },
+                    singleLine = true,
+                )
+                IconButton(
+                    onClick = {
+                        if (draft.isNotBlank()) {
+                            onAddModel(draft.trim())
+                            draft = ""
+                            adding = false
+                        }
+                    },
+                    modifier = Modifier.testTag("model_add_confirm_${provider.slug}"),
+                ) {
+                    Icon(imageVector = Icons.Outlined.Add, contentDescription = null)
+                }
+                IconButton(onClick = onProbeProvider, modifier = Modifier.testTag("model_add_probe_${provider.slug}")) {
+                    Icon(
+                        imageVector = Icons.Outlined.Science,
+                        contentDescription = stringResource(R.string.model_manager_probe_catalog),
+                    )
+                }
+            }
         }
+        HorizontalDivider(modifier = Modifier.padding(top = 4.dp))
     }
 }
 
@@ -203,73 +308,88 @@ private fun ProviderHeader(provider: ModelProvider) {
 private fun ModelRow(
     provider: ModelProvider,
     model: String,
-    capabilities: ModelCapabilities?,
-    isCustom: Boolean,
-    onToggle: ((CapabilityOverride) -> CapabilityOverride) -> Unit,
+    viewModel: ModelManagerViewModel,
     onRemove: () -> Unit,
 ) {
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+    val spacing = LocalSpacing.current
+    var expanded by rememberSaveable(model) { mutableStateOf(false) }
+    val caps = viewModel.effectiveCapabilities(provider.slug, model)
+    Column(modifier = Modifier.fillMaxWidth()) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded }
+                    .padding(vertical = 6.dp)
+                    .testTag("model_row_${provider.slug}_$model"),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            Icon(
+                imageVector = if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
             Text(
                 text = model,
                 style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).padding(start = 4.dp),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            if (isCustom) {
-                IconButton(
-                    onClick = onRemove,
-                    modifier = Modifier.size(32.dp).testTag("model_remove_${provider.slug}_$model"),
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Delete,
-                        contentDescription = stringResource(R.string.model_manager_remove_model),
-                        tint = MaterialTheme.colorScheme.error,
-                    )
-                }
+            caps?.context_window?.let { ctx ->
+                Text(
+                    text = stringResource(R.string.model_manager_context_window, ctx),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            IconButton(
+                onClick = onRemove,
+                modifier = Modifier.size(32.dp).testTag("model_remove_${provider.slug}_$model"),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Delete,
+                    contentDescription = stringResource(R.string.model_manager_remove_title),
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(16.dp),
+                )
             }
         }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            CapabilityToggle(
-                label = stringResource(R.string.model_manager_cap_reasoning),
-                checked = capabilities?.reasoningSupport == true,
-                onCheckedChange = { onToggle { o -> o.copy(reasoning = it) } },
-                testTag = "cap_reasoning_${provider.slug}_$model",
-            )
-            CapabilityToggle(
-                label = stringResource(R.string.model_manager_cap_tools),
-                checked = capabilities?.supports_tools == true,
-                onCheckedChange = { onToggle { o -> o.copy(tools = it) } },
-                testTag = "cap_tools_${provider.slug}_$model",
-            )
-            CapabilityToggle(
-                label = stringResource(R.string.model_manager_cap_vision),
-                checked = capabilities?.supports_vision == true,
-                onCheckedChange = { onToggle { o -> o.copy(vision = it) } },
-                testTag = "cap_vision_${provider.slug}_$model",
-            )
-            CapabilityToggle(
-                label = stringResource(R.string.model_manager_cap_fast),
-                checked = capabilities?.fast == true,
-                onCheckedChange = { onToggle { o -> o.copy(fast = it) } },
-                testTag = "cap_fast_${provider.slug}_$model",
-            )
+        if (expanded) {
+            Column(modifier = Modifier.fillMaxWidth().padding(start = 22.dp, bottom = 6.dp)) {
+                CapabilityToggle(
+                    label = stringResource(R.string.model_manager_cap_reasoning),
+                    checked = caps?.reasoningSupport == true,
+                    tag = "cap_reasoning_${provider.slug}_$model",
+                    onChange = { viewModel.setOverride(provider.slug, model) { o -> o.copy(reasoning = it) } },
+                )
+                CapabilityToggle(
+                    label = stringResource(R.string.model_manager_cap_tools),
+                    checked = caps?.supports_tools == true,
+                    tag = "cap_tools_${provider.slug}_$model",
+                    onChange = { viewModel.setOverride(provider.slug, model) { o -> o.copy(tools = it) } },
+                )
+                CapabilityToggle(
+                    label = stringResource(R.string.model_manager_cap_vision),
+                    checked = caps?.supports_vision == true,
+                    tag = "cap_vision_${provider.slug}_$model",
+                    onChange = { viewModel.setOverride(provider.slug, model) { o -> o.copy(vision = it) } },
+                )
+                CapabilityToggle(
+                    label = stringResource(R.string.model_manager_cap_attachments),
+                    checked = viewModel.effectiveAttachments(provider.slug, model),
+                    tag = "cap_attachments_${provider.slug}_$model",
+                    onChange = { viewModel.setOverride(provider.slug, model) { o -> o.copy(attachments = it) } },
+                )
+                CapabilityToggle(
+                    label = stringResource(R.string.model_manager_cap_fast),
+                    checked = caps?.fast == true,
+                    tag = "cap_fast_${provider.slug}_$model",
+                    onChange = { viewModel.setOverride(provider.slug, model) { o -> o.copy(fast = it) } },
+                )
+            }
         }
-        capabilities?.context_window?.let { ctx ->
-            Text(
-                text = stringResource(R.string.model_manager_context_window, ctx),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+        Spacer(modifier = Modifier.height(2.dp))
     }
 }
 
@@ -277,133 +397,113 @@ private fun ModelRow(
 private fun CapabilityToggle(
     label: String,
     checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
-    testTag: String,
-) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-        )
-        Switch(
-            checked = checked,
-            onCheckedChange = onCheckedChange,
-            modifier = Modifier.testTag(testTag),
-        )
-    }
-}
-
-@Composable
-private fun AddModelRow(
-    providerSlug: String,
-    onAdd: (String, String) -> Unit,
-) {
-    var expanded by remember { mutableStateOf(false) }
-    var draft by remember { mutableStateOf("") }
-    if (!expanded) {
-        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
-            IconButton(
-                onClick = { expanded = true },
-                modifier = Modifier.size(32.dp).testTag("model_add_expand_$providerSlug"),
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.Add,
-                    contentDescription = stringResource(R.string.model_manager_add_model),
-                    tint = MaterialTheme.colorScheme.primary,
-                )
-            }
-            Text(
-                text = stringResource(R.string.model_manager_add_model),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.align(Alignment.CenterVertically),
-            )
-        }
-    } else {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            OutlinedTextField(
-                value = draft,
-                onValueChange = { draft = it },
-                modifier = Modifier.weight(1f).testTag("model_add_field_$providerSlug"),
-                placeholder = { Text(stringResource(R.string.model_manager_add_hint)) },
-                singleLine = true,
-            )
-            IconButton(
-                onClick = {
-                    onAdd(providerSlug, draft)
-                    draft = ""
-                    expanded = false
-                },
-                modifier = Modifier.testTag("model_add_confirm_$providerSlug"),
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.Add,
-                    contentDescription = stringResource(R.string.model_manager_add_confirm),
-                    tint = MaterialTheme.colorScheme.primary,
-                )
-            }
-            IconButton(onClick = {
-                draft = ""
-                expanded = false
-            }) {
-                Icon(
-                    imageVector = Icons.Outlined.Close,
-                    contentDescription = stringResource(R.string.action_cancel),
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun ModelManagerToolbar(
-    uiState: ModelManagerUiState,
-    onProbe: () -> Unit,
-    onSave: () -> Unit,
+    tag: String,
+    onChange: (Boolean) -> Unit,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(text = label, style = MaterialTheme.typography.bodySmall)
+        Switch(checked = checked, onCheckedChange = onChange, modifier = Modifier.testTag(tag))
+    }
+}
+
+@Composable
+private fun AddProviderRow(onClick: () -> Unit) {
+    Row(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick)
+                .padding(vertical = 10.dp)
+                .testTag("model_manager_add_provider"),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        FilledTonalButton(
-            onClick = onProbe,
-            enabled = !uiState.isProbing,
-            modifier = Modifier.testTag("model_manager_probe"),
-        ) {
-            if (uiState.isProbing) {
-                CircularProgressIndicator(modifier = Modifier.size(18.dp))
-            } else {
-                Icon(
-                    imageVector = Icons.Outlined.Science,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
+        Icon(imageVector = Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+        Text(
+            text = stringResource(R.string.model_manager_add_provider),
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.padding(start = 8.dp),
+        )
+    }
+}
+
+@Composable
+private fun AddProviderDialog(
+    onDismiss: () -> Unit,
+    onConfirm: (CustomProviderDraft) -> Unit,
+) {
+    var slug by rememberSaveable { mutableStateOf("") }
+    var name by rememberSaveable { mutableStateOf("") }
+    var baseUrl by rememberSaveable { mutableStateOf("") }
+    var apiKey by rememberSaveable { mutableStateOf("") }
+    var models by rememberSaveable { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.model_manager_add_provider)) },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = slug,
+                    onValueChange = { slug = it },
+                    label = { Text(stringResource(R.string.model_manager_provider_slug)) },
+                    singleLine = true,
+                    modifier = Modifier.testTag("provider_field_slug"),
+                )
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text(stringResource(R.string.model_manager_provider_name)) },
+                    singleLine = true,
+                    modifier = Modifier.testTag("provider_field_name"),
+                )
+                OutlinedTextField(
+                    value = baseUrl,
+                    onValueChange = { baseUrl = it },
+                    label = { Text(stringResource(R.string.model_manager_provider_base_url)) },
+                    singleLine = true,
+                    modifier = Modifier.testTag("provider_field_base_url"),
+                )
+                OutlinedTextField(
+                    value = apiKey,
+                    onValueChange = { apiKey = it },
+                    label = { Text(stringResource(R.string.model_manager_provider_api_key)) },
+                    singleLine = true,
+                    modifier = Modifier.testTag("provider_field_api_key"),
+                )
+                OutlinedTextField(
+                    value = models,
+                    onValueChange = { models = it },
+                    label = { Text(stringResource(R.string.model_manager_provider_models)) },
+                    modifier = Modifier.testTag("provider_field_models"),
                 )
             }
-            Text(
-                text = stringResource(R.string.model_manager_probe),
-                modifier = Modifier.padding(start = 6.dp),
-            )
-        }
-        Spacer(modifier = Modifier.weight(1f))
-        val dirty = uiState.overrides.isNotEmpty() || uiState.customModels.isNotEmpty()
-        FilledTonalButton(
-            onClick = onSave,
-            enabled = dirty && !uiState.isSaving,
-            modifier = Modifier.testTag("model_manager_save"),
-        ) {
-            Icon(
-                imageVector = Icons.Outlined.Refresh,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-            )
-            Text(
-                text = stringResource(R.string.model_manager_save),
-                modifier = Modifier.padding(start = 6.dp),
-            )
-        }
-    }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    onConfirm(
+                        CustomProviderDraft(
+                            slug = slug.trim(),
+                            displayName = name.trim().ifEmpty { slug.trim() },
+                            baseUrl = baseUrl.trim(),
+                            apiKey = apiKey.trim(),
+                            models = models.split(',').map { it.trim() }.filter { it.isNotEmpty() },
+                        ),
+                    )
+                },
+                enabled = slug.isNotBlank() && baseUrl.isNotBlank(),
+                modifier = Modifier.testTag("provider_add_confirm"),
+            ) {
+                Text(stringResource(R.string.model_manager_add_provider))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.action_cancel))
+            }
+        },
+    )
 }

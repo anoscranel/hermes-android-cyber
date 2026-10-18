@@ -15,6 +15,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -107,10 +108,12 @@ import com.m57.hermescontrol.ui.chat.components.ChatTimelineNoPrefetchStrategy
 import com.m57.hermescontrol.ui.chat.components.ChatTimelineSheet
 import com.m57.hermescontrol.ui.chat.components.ConnectionSetupSheet
 import com.m57.hermescontrol.ui.chat.components.ContextDetailSheet
-import com.m57.hermescontrol.ui.chat.components.ContextUsageChip
+import com.m57.hermescontrol.ui.chat.components.ContextMeterRing
+import com.m57.hermescontrol.ui.chat.components.MediaModelsSheet
 import com.m57.hermescontrol.ui.chat.components.MediaViewerDialog
 import com.m57.hermescontrol.ui.chat.components.ModelManagerSheet
 import com.m57.hermescontrol.ui.chat.components.PendingSendRecovery
+import com.m57.hermescontrol.ui.chat.components.ProbeSheet
 import com.m57.hermescontrol.ui.chat.components.ProjectBadge
 import com.m57.hermescontrol.ui.chat.components.ProjectPickerChip
 import com.m57.hermescontrol.ui.chat.components.ProjectPickerSheet
@@ -125,6 +128,7 @@ import com.m57.hermescontrol.ui.chat.components.SpeechRequest
 import com.m57.hermescontrol.ui.chat.components.SpeechText
 import com.m57.hermescontrol.ui.chat.components.SubagentInspectionSheet
 import com.m57.hermescontrol.ui.chat.components.TaskProgressChip
+import com.m57.hermescontrol.ui.chat.components.TpsChip
 import com.m57.hermescontrol.ui.chat.components.rememberChatImagePaste
 import com.m57.hermescontrol.ui.chat.components.rememberChatMediaLaunchers
 import com.m57.hermescontrol.ui.chat.components.rememberChatScrollController
@@ -254,6 +258,17 @@ fun ChatScreen(
     var showContextSheet by remember { mutableStateOf(false) }
     var sessionsSheetSection by rememberSaveable { mutableStateOf<HistorySection?>(null) }
     var showModelManagerSheet by rememberSaveable { mutableStateOf(false) }
+    var showMediaModelsSheet by rememberSaveable { mutableStateOf(false) }
+    var showProbeSheet by rememberSaveable { mutableStateOf(false) }
+    // Shared model-manager VM so the probe sheet reuses the loaded catalog.
+    val modelManagerViewModel: ModelManagerViewModel = viewModel { ModelManagerViewModel() }
+    val modelManagerUiState by modelManagerViewModel.uiState.collectAsStateWithLifecycle()
+    val modelManagerCatalog =
+        remember(modelManagerUiState.providers) {
+            modelManagerUiState.providers.flatMap { provider ->
+                provider.models.orEmpty().map { model -> provider.slug to model }
+            }
+        }
     var hasSessionActivity by remember { mutableStateOf(false) }
 
     // Slow-poll the server's active-session list while connected; a non-empty
@@ -915,18 +930,25 @@ fun ChatScreen(
                 }
             }
 
-            // Context-window meter (used / full) — sits above the composer so it
-            // stays visible while the session is active, grouped with the model
-            // it belongs to without crowding the title or the control row.
-            ContextUsageChip(
-                usedTokens = state.usedContextTokens,
-                fullTokens = state.fullContextTokens,
-                compressionCount = state.compressionCount,
-                onClick = {
-                    showContextSheet = true
-                    viewModel.fetchSessionDetailBreakdown()
-                },
-            )
+            // Context-window meter: circular fill ring at the right edge above
+            // the composer, with the rolling tokens/sec chip to its left. Tap
+            // the ring opens the context detail sheet (same as the old bar).
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TpsChip(tps = state.latestTps)
+                Spacer(modifier = Modifier.width(8.dp))
+                ContextMeterRing(
+                    usedTokens = state.usedTokens,
+                    fullTokens = state.fullTokens,
+                    onClick = {
+                        showContextSheet = true
+                        viewModel.fetchSessionDetailBreakdown()
+                    },
+                )
+            }
 
             if (!timelineState.isHistorical) {
                 PendingSendRecovery(
@@ -994,6 +1016,7 @@ fun ChatScreen(
                 onModelTap = { viewModel.openModelPicker() },
                 onSessionsTap = { sessionsSheetSection = HistorySection.CONVERSATIONS },
                 onModelManagerTap = { showModelManagerSheet = true },
+                onMediaModelsTap = { showMediaModelsSheet = true },
                 onSessionsLongPress = { sessionsSheetSection = HistorySection.AUTOMATIONS },
                 onSwipeUp = { sessionsSheetSection = HistorySection.CONVERSATIONS },
                 hasSessionActivity = hasSessionActivity,
@@ -1114,7 +1137,27 @@ fun ChatScreen(
         }
 
         if (showModelManagerSheet) {
-            ModelManagerSheet(onDismiss = { showModelManagerSheet = false })
+            ModelManagerSheet(
+                onDismiss = { showModelManagerSheet = false },
+                onOpenProbe = {
+                    showModelManagerSheet = false
+                    showProbeSheet = true
+                },
+                viewModel = modelManagerViewModel,
+            )
+        }
+
+        if (showMediaModelsSheet) {
+            MediaModelsSheet(onDismiss = { showMediaModelsSheet = false })
+        }
+
+        if (showProbeSheet) {
+            ProbeSheet(
+                catalog = modelManagerCatalog,
+                currentSessionId = state.currentSessionId,
+                currentModelLabel = state.currentSessionModel,
+                onDismiss = { showProbeSheet = false },
+            )
         }
 
         if (showContextSheet) {
