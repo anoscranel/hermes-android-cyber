@@ -1,5 +1,6 @@
 package com.m57.hermescontrol.ui.chat.components
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,6 +17,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.ExpandLess
@@ -34,10 +36,13 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -65,11 +70,17 @@ import com.m57.hermescontrol.ui.common.ToastEffect
 
 /**
  * Model manager (text models): per-provider catalog with keyword filter,
- * expandable rows exposing capability toggles, per-row remove with confirm,
- * add-model and add-provider flows (the catalog probe lives inside the add
- * flows only), and a bottom toolbar with the probe-testing sheet entry and
- * the Save that writes model_overrides/providers to the server config.
+ * expandable rows exposing capability toggles, swipe-right rename / swipe-left
+ * remove with confirm, add-model and add-provider flows (the catalog probe
+ * lives inside the add flows only), and a bottom toolbar with the probe-testing
+ * sheet entry and the Save that writes model_overrides/providers to the server
+ * config.
  */
+private object ModelManagerSheetMemory {
+    /** Providers the user explicitly expanded; survives sheet closes. */
+    var expandedProviders: Set<String> = emptySet()
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ModelManagerSheet(
@@ -83,7 +94,10 @@ fun ModelManagerSheet(
     var showAddProvider by remember { mutableStateOf(false) }
     var confirmRemove by remember { mutableStateOf<Pair<String, String>?>(null) }
     var confirmRemoveProvider by remember { mutableStateOf<String?>(null) }
-    var collapsedProviders by remember { mutableStateOf(setOf<String>()) }
+    // Expanded set — providers start COLLAPSED by default (theta: only an
+    // explicit tap opens one) and the choice survives sheet closes within the
+    // app session (theta: an expanded provider stays expanded next open).
+    var expandedProviders by remember { mutableStateOf(ModelManagerSheetMemory.expandedProviders) }
 
     LaunchedEffect(Unit) {
         viewModel.load()
@@ -133,18 +147,19 @@ fun ModelManagerSheet(
                             )
                         LazyColumn(modifier = Modifier.fillMaxSize().testTag("model_manager_list")) {
                             visible.forEach { (provider, models) ->
-                                val collapsed = provider.slug in collapsedProviders
+                                val collapsed = provider.slug !in expandedProviders
                                 item(key = "header_${provider.slug}") {
                                     ProviderHeader(
                                         provider = provider,
                                         collapsed = collapsed,
                                         onToggleCollapse = {
-                                            collapsedProviders =
+                                            expandedProviders =
                                                 if (collapsed) {
-                                                    collapsedProviders - provider.slug
+                                                    expandedProviders + provider.slug
                                                 } else {
-                                                    collapsedProviders + provider.slug
+                                                    expandedProviders - provider.slug
                                                 }
+                                            ModelManagerSheetMemory.expandedProviders = expandedProviders
                                         },
                                         onAddModel = { viewModel.addCustomModel(provider.slug, it) },
                                         onProbeProvider = { viewModel.probeCatalog() },
@@ -387,87 +402,135 @@ private fun ModelRow(
     val spacing = LocalSpacing.current
     var expanded by rememberSaveable(model) { mutableStateOf(false) }
     val caps = viewModel.effectiveCapabilities(provider.slug, model)
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .clickable { expanded = !expanded }
-                    .padding(vertical = 6.dp)
-                    .testTag("model_row_${provider.slug}_$model"),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                imageVector = if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-            )
-            Text(
-                text = model,
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.weight(1f).padding(start = 4.dp),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            caps?.context_window?.let { ctx ->
-                Text(
-                    text = stringResource(R.string.model_manager_context_window, ctx),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+    // Swipe gestures mirror the sessions sheet: right = set as main model
+    // (models have no rename flow — set-as-main is the per-model action),
+    // left = remove with the confirmation popup. The row never actually
+    // dismisses; the popup flows own both actions.
+    val dismissState =
+        rememberSwipeToDismissBoxState(
+            confirmValueChange = { value ->
+                when (value) {
+                    SwipeToDismissBoxValue.StartToEnd -> {
+                        viewModel.setAsMain(provider.slug, model)
+                        false
+                    }
+
+                    SwipeToDismissBoxValue.EndToStart -> {
+                        onRemove()
+                        false
+                    }
+
+                    SwipeToDismissBoxValue.Settled -> {
+                        true
+                    }
+                }
+            },
+        )
+    SwipeToDismissBox(
+        state = dismissState,
+        modifier = Modifier.testTag("model_swipe_${provider.slug}_$model"),
+        backgroundContent = {
+            val direction = dismissState.dismissDirection
+            val (alignment, icon, tint) =
+                when (direction) {
+                    SwipeToDismissBoxValue.StartToEnd -> {
+                        Triple(Alignment.CenterStart, Icons.Outlined.Check, MaterialTheme.colorScheme.primary)
+                    }
+
+                    SwipeToDismissBoxValue.EndToStart -> {
+                        Triple(Alignment.CenterEnd, Icons.Outlined.Delete, MaterialTheme.colorScheme.error)
+                    }
+
+                    SwipeToDismissBoxValue.Settled -> {
+                        Triple(Alignment.Center, Icons.Outlined.Check, MaterialTheme.colorScheme.surface)
+                    }
+                }
+            Box(
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .background(tint.copy(alpha = 0.15f))
+                        .padding(horizontal = spacing.md),
+                contentAlignment = alignment,
+            ) {
+                if (direction != SwipeToDismissBoxValue.Settled) {
+                    Icon(imageVector = icon, contentDescription = null, tint = tint)
+                }
             }
-            IconButton(
-                onClick = onRemove,
-                modifier = Modifier.size(32.dp).testTag("model_remove_${provider.slug}_$model"),
+        },
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface)) {
+            Row(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable { expanded = !expanded }
+                        .padding(vertical = 6.dp)
+                        .testTag("model_row_${provider.slug}_$model"),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(
-                    imageVector = Icons.Outlined.Delete,
-                    contentDescription = stringResource(R.string.model_manager_remove_title),
-                    tint = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.size(16.dp),
+                    imageVector = if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
                 )
+                Text(
+                    text = model,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f).padding(start = 4.dp),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                caps?.context_window?.let { ctx ->
+                    Text(
+                        text = stringResource(R.string.model_manager_context_window, ctx),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
-        }
-        if (expanded) {
-            // Horizontal toggles (v1 layout): compact label+switch chips that
-            // wrap under the row instead of one full-width row per capability.
-            FlowRow(
-                modifier = Modifier.fillMaxWidth().padding(start = 22.dp, bottom = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                CapabilityToggle(
-                    label = stringResource(R.string.model_manager_cap_reasoning),
-                    checked = caps?.reasoningSupport == true,
-                    tag = "cap_reasoning_${provider.slug}_$model",
-                    onChange = { viewModel.setOverride(provider.slug, model) { o -> o.copy(reasoning = it) } },
-                )
-                CapabilityToggle(
-                    label = stringResource(R.string.model_manager_cap_tools),
-                    checked = caps?.supports_tools == true,
-                    tag = "cap_tools_${provider.slug}_$model",
-                    onChange = { viewModel.setOverride(provider.slug, model) { o -> o.copy(tools = it) } },
-                )
-                CapabilityToggle(
-                    label = stringResource(R.string.model_manager_cap_vision),
-                    checked = caps?.supports_vision == true,
-                    tag = "cap_vision_${provider.slug}_$model",
-                    onChange = { viewModel.setOverride(provider.slug, model) { o -> o.copy(vision = it) } },
-                )
-                CapabilityToggle(
-                    label = stringResource(R.string.model_manager_cap_attachments),
-                    checked = viewModel.effectiveAttachments(provider.slug, model),
-                    tag = "cap_attachments_${provider.slug}_$model",
-                    onChange = { viewModel.setOverride(provider.slug, model) { o -> o.copy(attachments = it) } },
-                )
-                CapabilityToggle(
-                    label = stringResource(R.string.model_manager_cap_fast),
-                    checked = caps?.fast == true,
-                    tag = "cap_fast_${provider.slug}_$model",
-                    onChange = { viewModel.setOverride(provider.slug, model) { o -> o.copy(fast = it) } },
-                )
+            if (expanded) {
+                // Horizontal toggles (v1 layout): compact label+switch chips
+                // that wrap under the row instead of one full-width row per
+                // capability.
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth().padding(start = 22.dp, bottom = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    CapabilityToggle(
+                        label = stringResource(R.string.model_manager_cap_reasoning),
+                        checked = caps?.reasoningSupport == true,
+                        tag = "cap_reasoning_${provider.slug}_$model",
+                        onChange = { viewModel.setOverride(provider.slug, model) { o -> o.copy(reasoning = it) } },
+                    )
+                    CapabilityToggle(
+                        label = stringResource(R.string.model_manager_cap_tools),
+                        checked = caps?.supports_tools == true,
+                        tag = "cap_tools_${provider.slug}_$model",
+                        onChange = { viewModel.setOverride(provider.slug, model) { o -> o.copy(tools = it) } },
+                    )
+                    CapabilityToggle(
+                        label = stringResource(R.string.model_manager_cap_vision),
+                        checked = caps?.supports_vision == true,
+                        tag = "cap_vision_${provider.slug}_$model",
+                        onChange = { viewModel.setOverride(provider.slug, model) { o -> o.copy(vision = it) } },
+                    )
+                    CapabilityToggle(
+                        label = stringResource(R.string.model_manager_cap_attachments),
+                        checked = viewModel.effectiveAttachments(provider.slug, model),
+                        tag = "cap_attachments_${provider.slug}_$model",
+                        onChange = { viewModel.setOverride(provider.slug, model) { o -> o.copy(attachments = it) } },
+                    )
+                    CapabilityToggle(
+                        label = stringResource(R.string.model_manager_cap_fast),
+                        checked = caps?.fast == true,
+                        tag = "cap_fast_${provider.slug}_$model",
+                        onChange = { viewModel.setOverride(provider.slug, model) { o -> o.copy(fast = it) } },
+                    )
+                }
             }
+            Spacer(modifier = Modifier.height(2.dp))
         }
-        Spacer(modifier = Modifier.height(2.dp))
     }
 }
 

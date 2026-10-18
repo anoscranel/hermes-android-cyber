@@ -59,6 +59,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -75,6 +76,7 @@ import com.m57.hermescontrol.theme.LocalHermesStatusColors
 import com.m57.hermescontrol.ui.common.DisableDrawerGestures
 import com.m57.hermescontrol.ui.common.DrawerGestureController
 import com.m57.hermescontrol.ui.common.LocalDrawerGestureController
+import com.m57.hermescontrol.ui.common.SearchBar
 import com.m57.hermescontrol.ui.common.WhatsNewDialog
 import com.m57.hermescontrol.ui.plugins.MemoryProviderDetailScreen
 import com.m57.hermescontrol.ui.settings.ClientCertificatesPage
@@ -379,6 +381,7 @@ fun MainNavigation(sessionId: String? = null) {
                             hasToken = hasToken,
                             showSupportButton = false,
                             closeDrawer = { endDrawerOpen = false },
+                            showSearch = true,
                         )
                     }
                 }
@@ -408,9 +411,11 @@ private fun HermesDrawerContent(
     hasToken: Boolean,
     showSupportButton: Boolean,
     closeDrawer: () -> Unit,
+    showSearch: Boolean = false,
 ) {
     val context = LocalContext.current
     val connectionStatus by HermesWsClient.connectionStatus.collectAsState()
+    var drawerQuery by remember { mutableStateOf("") }
     val statusColor =
         when (connectionStatus) {
             ConnectionStatus.CONNECTED -> LocalHermesStatusColors.current.success
@@ -456,23 +461,45 @@ private fun HermesDrawerContent(
         )
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
-        for (section in sections) {
-            Text(
-                text = stringResource(section.titleRes).uppercase(),
+        // Cross-harness search: filters the whole screen registry by label,
+        // so any destination is reachable by name without scrolling sections.
+        // Providers/models/sessions are not registry entries, so they are
+        // naturally out of scope (theta: everything except those).
+        if (showSearch) {
+            SearchBar(
+                query = drawerQuery,
+                onQueryChange = { drawerQuery = it },
+                placeholder = stringResource(R.string.drawer_search_placeholder),
                 modifier =
-                    Modifier.padding(
-                        start = 16.dp,
-                        top = 8.dp,
-                        bottom = 4.dp,
-                        end = 16.dp,
-                    ),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontWeight = FontWeight.SemiBold,
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .testTag("drawer_search"),
             )
-            ScreenRegistry.ALL_SCREENS
-                .filter { it.drawerSection == section && hasToken }
-                .forEach { entry ->
+        }
+        val searchTerms =
+            drawerQuery
+                .trim()
+                .lowercase()
+                .split(Regex("\\s+"))
+                .filter { it.isNotBlank() }
+        val searchActive = showSearch && searchTerms.isNotEmpty()
+
+        if (searchActive) {
+            val matches =
+                ScreenRegistry.ALL_SCREENS.filter { entry ->
+                    val label = context.getString(entry.labelRes).lowercase()
+                    hasToken && searchTerms.all { label.contains(it) }
+                }
+            if (matches.isEmpty()) {
+                Text(
+                    text = stringResource(R.string.drawer_search_empty),
+                    modifier = Modifier.padding(16.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                matches.forEach { entry ->
                     NavigationDrawerItem(
                         icon = { Icon(entry.icon, contentDescription = null) },
                         label = { Text(stringResource(entry.labelRes)) },
@@ -491,6 +518,44 @@ private fun HermesDrawerContent(
                             ),
                     )
                 }
+            }
+        } else {
+            for (section in sections) {
+                Text(
+                    text = stringResource(section.titleRes).uppercase(),
+                    modifier =
+                        Modifier.padding(
+                            start = 16.dp,
+                            top = 8.dp,
+                            bottom = 4.dp,
+                            end = 16.dp,
+                        ),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                ScreenRegistry.ALL_SCREENS
+                    .filter { it.drawerSection == section && hasToken }
+                    .forEach { entry ->
+                        NavigationDrawerItem(
+                            icon = { Icon(entry.icon, contentDescription = null) },
+                            label = { Text(stringResource(entry.labelRes)) },
+                            selected = currentScreen == entry.key,
+                            onClick = {
+                                closeDrawer()
+                                NavigationController.navigateTo(entry.key)
+                            },
+                            colors =
+                                NavigationDrawerItemDefaults.colors(
+                                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                    selectedTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    selectedIconColor = MaterialTheme.colorScheme.primary,
+                                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                ),
+                        )
+                    }
+            }
         }
 
         if (showSupportButton) {

@@ -637,6 +637,11 @@ class ChatViewModel(
     /** Runtime TUI session returned by session.resume; Desktop storage keeps the original ID. */
     private var runtimeSessionId: String? = null
 
+    /** Session id the socket actually owns right now — the only id RPCs may
+     * target without a 4001 "session not found". Falls back to the persisted
+     * id, which is valid once the session is ready (probe sheet uses this). */
+    fun activeRuntimeSessionId(): String? = runtimeSessionId ?: _uiState.value.currentSessionId
+
     /** Issue #969: Prompt staged before session.create resolves. */
     private data class PendingPrompt(
         val text: String,

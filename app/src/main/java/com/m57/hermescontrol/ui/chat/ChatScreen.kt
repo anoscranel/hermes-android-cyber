@@ -1015,6 +1015,7 @@ fun ChatScreen(
                 pendingReasoningLevel = state.pendingReasoningLevel,
                 onModelTap = { viewModel.openModelPicker() },
                 onSessionsTap = { sessionsSheetSection = HistorySection.CONVERSATIONS },
+                onNewChatTap = { NavigationController.openNewChat() },
                 onModelManagerTap = { showModelManagerSheet = true },
                 onMediaModelsTap = { showMediaModelsSheet = true },
                 onSessionsLongPress = { sessionsSheetSection = HistorySection.AUTOMATIONS },
@@ -1154,7 +1155,8 @@ fun ChatScreen(
         if (showProbeSheet) {
             ProbeSheet(
                 catalog = modelManagerCatalog,
-                currentSessionId = state.currentSessionId,
+                runtimeSessionId = viewModel.activeRuntimeSessionId(),
+                isSessionReady = state.isSessionReady,
                 currentModelLabel = state.currentSessionModel,
                 onDismiss = { showProbeSheet = false },
             )

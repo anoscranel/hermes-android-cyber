@@ -207,23 +207,39 @@ class ProbeViewModel : ViewModel() {
                 }
             }
 
-        HermesWsClient.sendMessage(sessionId, PROBE_PROMPT)
+        val requestId = HermesWsClient.sendMessage(sessionId, PROBE_PROMPT)
 
-        val complete =
+        // Await MessageComplete OR the RpcError for THIS request. The gateway
+        // answers a bad/stale session id with 4001 "session not found" and
+        // never emits a completion — failing fast here turns a 45s hang into
+        // an immediate, truthful error row. Errors are correlated by the
+        // request id the send returned (JSON-RPC echoes it), so a concurrent
+        // chat or another probe's error cannot fail this probe.
+        val outcome =
             withTimeoutOrNull(PROBE_TIMEOUT_MS) {
                 HermesWsClient.events.first {
-                    it is WsEvent.MessageComplete &&
-                        (it.sessionId == sessionId || it.storedSessionId == sessionId)
+                    when (it) {
+                        is WsEvent.MessageComplete ->
+                            it.sessionId == sessionId || it.storedSessionId == sessionId
+
+                        is WsEvent.RpcError -> it.id == requestId
+
+                        else -> false
+                    }
                 }
             }
         collector.cancel()
         val end = System.currentTimeMillis()
 
-        if (complete == null) {
+        if (outcome == null) {
             markResult(k, provider, model, ProbeStatus.FAILED, error = "Timed out (${PROBE_TIMEOUT_MS / 1000}s)")
             return
         }
-        complete as WsEvent.MessageComplete
+        if (outcome is WsEvent.RpcError) {
+            markResult(k, provider, model, ProbeStatus.FAILED, error = outcome.error.message)
+            return
+        }
+        val complete = outcome as WsEvent.MessageComplete
         val tps =
             (complete.rawPayload?.get("avg_tps") as? Number)?.toDouble()
                 ?: ((complete.rawPayload?.get("usage") as? Map<*, *>)?.get("avg_tps") as? Number)?.toDouble()

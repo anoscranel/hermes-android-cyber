@@ -3,6 +3,7 @@ package com.m57.hermescontrol.ui.chat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.m57.hermescontrol.data.model.ConfigUpdateRequest
+import com.m57.hermescontrol.data.model.ModelAssignmentRequest
 import com.m57.hermescontrol.data.model.ModelCapabilities
 import com.m57.hermescontrol.data.model.ModelProvider
 import com.m57.hermescontrol.data.model.reasoningSupport
@@ -10,11 +11,13 @@ import com.m57.hermescontrol.data.remote.ApiClient
 import com.m57.hermescontrol.data.remote.NetworkResult
 import com.m57.hermescontrol.data.remote.safeApiCall
 import com.m57.hermescontrol.data.remote.safeApiRead
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 
@@ -293,6 +296,36 @@ class ModelManagerViewModel : ViewModel() {
         _uiState.update { it.copy(hiddenProviders = it.hiddenProviders - slug) }
     }
 
+    /** Set a model as the server's main chat model (scope "main" — the only
+     * assignment scope for chat models). Surfaced as the swipe-right action on
+     * a model row. */
+    fun setAsMain(
+        providerSlug: String,
+        modelName: String,
+    ) {
+        viewModelScope.launch {
+            val result =
+                withContext(Dispatchers.IO) {
+                    safeApiCall {
+                        ApiClient.hermesApi.setModelAssignment(
+                            ModelAssignmentRequest(
+                                scope = "main",
+                                provider = providerSlug,
+                                model = modelName,
+                            ),
+                        )
+                    }
+                }
+            val toast =
+                when (result) {
+                    is NetworkResult.Success -> "Main model: $modelName"
+
+                    is NetworkResult.Failure -> result.error.message
+                }
+            _uiState.update { it.copy(toastMessage = toast) }
+        }
+    }
+
     /** Persist staged overrides, hidden models, custom models, and custom
      * providers through the structured config update (server merges into the
      * active profile). Keys follow the documented schema:
@@ -469,15 +502,16 @@ fun filterProviders(
             (catalogModels + staged)
                 .distinct()
                 .filter { "${provider.slug}:$it" !in hiddenModels }
-        val providerMatches =
-            q.isEmpty() ||
-                provider.name.lowercase().contains(q) ||
-                provider.slug.lowercase().contains(q)
+        // Multi-term search: every whitespace-separated term must match the
+        // provider OR the model, so "openai gpt" finds openai's gpt models and
+        // "gpt openai" works identically (theta: provider+model keywords at
+        // the same time, not one or the other).
+        val terms = q.split(Regex("\\s+")).filter { it.isNotBlank() }
+        val providerHay = "${provider.name.lowercase()} ${provider.slug.lowercase()}"
         val visible =
-            if (providerMatches) {
-                all
-            } else {
-                all.filter { it.lowercase().contains(q) }
+            all.filter { model ->
+                val m = model.lowercase()
+                terms.all { term -> providerHay.contains(term) || m.contains(term) }
             }
         if (visible.isEmpty() && q.isNotEmpty()) {
             null

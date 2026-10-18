@@ -1593,6 +1593,7 @@
     <string name="sessions_sheet_current_actions">Current chat actions</string>
     <string name="sessions_sheet_new_chat">New chat</string>
     <string name="chat_open_model_manager">Manage models</string>
+    <string name="chat_new_chat">New chat</string>
     <string name="model_manager_title">Model manager</string>
     <string name="model_manager_search_placeholder">Filter providers and models…</string>
     <string name="model_manager_empty">No models match</string>
@@ -1613,6 +1614,12 @@
     <string name="model_manager_remove_provider_title">Remove provider</string>
     <string name="model_manager_remove_provider_message">Remove %1$s from the config? Applied on Save (providers.%1$s.enabled = false); the catalog entry survives on the server.</string>
     <string name="probe_search_placeholder">Filter models to probe…</string>
+    <string name="probe_status_idle">Idle</string>
+    <string name="probe_status_running">Probing…</string>
+    <string name="probe_status_ok">OK</string>
+    <string name="probe_status_failed">Failed</string>
+    <string name="drawer_search_placeholder">Search settings &amp; tools…</string>
+    <string name="drawer_search_empty">Nothing matches</string>
     <string name="model_manager_add_provider">Add provider</string>
     <string name="model_manager_provider_slug">Provider id (e.g. my-openai)</string>
     <string name="model_manager_provider_name">Display name</string>

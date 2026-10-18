@@ -59,7 +59,8 @@ import com.m57.hermescontrol.ui.common.SearchBar
 @Composable
 fun ProbeSheet(
     catalog: List<Pair<String, String>>,
-    currentSessionId: String?,
+    runtimeSessionId: String?,
+    isSessionReady: Boolean,
     currentModelLabel: String?,
     onDismiss: () -> Unit,
     viewModel: ProbeViewModel = viewModel { ProbeViewModel() },
@@ -75,12 +76,19 @@ fun ProbeSheet(
     var query by remember { mutableStateOf("") }
     val filteredCatalog =
         remember(catalog, query) {
-            val q = query.trim().lowercase()
-            if (q.isEmpty()) {
+            val terms =
+                query
+                    .trim()
+                    .lowercase()
+                    .split(Regex("\\s+"))
+                    .filter { it.isNotBlank() }
+            if (terms.isEmpty()) {
                 catalog
             } else {
                 catalog.filter { (provider, model) ->
-                    model.lowercase().contains(q) || provider.lowercase().contains(q)
+                    val m = model.lowercase()
+                    val p = provider.lowercase()
+                    terms.all { term -> m.contains(term) || p.contains(term) }
                 }
             }
         }
@@ -163,8 +171,8 @@ fun ProbeSheet(
                     }
                 } else {
                     FilledTonalButton(
-                        onClick = { viewModel.runProbes(currentSessionId, currentModelLabel) },
-                        enabled = uiState.selected.isNotEmpty(),
+                        onClick = { viewModel.runProbes(runtimeSessionId, currentModelLabel) },
+                        enabled = uiState.selected.isNotEmpty() && isSessionReady,
                         modifier = Modifier.testTag("probe_run"),
                     ) {
                         Icon(
@@ -179,7 +187,7 @@ fun ProbeSheet(
                     }
                 }
                 Spacer(modifier = Modifier.weight(1f))
-                if (currentSessionId == null) {
+                if (!isSessionReady) {
                     Text(
                         text = stringResource(R.string.probe_needs_session),
                         style = MaterialTheme.typography.labelSmall,
@@ -201,17 +209,24 @@ private fun ProbeRow(
     onToggle: () -> Unit,
 ) {
     val statusColors = LocalHermesStatusColors.current
-    val dotColor =
+    // Status = colored dot + human-readable label (dot colors alone read as
+    // decoration; the word is the state).
+    val (dotColor, statusLabel) =
         when (result?.status) {
-            ProbeStatus.OK -> statusColors.success
+            ProbeStatus.OK ->
+                statusColors.success to stringResource(R.string.probe_status_ok)
 
-            ProbeStatus.FAILED -> statusColors.error
+            ProbeStatus.FAILED ->
+                statusColors.error to stringResource(R.string.probe_status_failed)
 
-            ProbeStatus.RUNNING -> statusColors.warning
+            ProbeStatus.RUNNING ->
+                statusColors.warning to stringResource(R.string.probe_status_running)
 
             ProbeStatus.PENDING,
             null,
-            -> MaterialTheme.colorScheme.outline
+            ->
+                MaterialTheme.colorScheme.outline to
+                    stringResource(R.string.probe_status_idle)
         }
     Row(
         modifier =
@@ -242,11 +257,28 @@ private fun ProbeRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Text(
-                text = provider,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = provider,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = " · $statusLabel",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = dotColor,
+                )
+                result?.error?.let { err ->
+                    Text(
+                        text = " — $err",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                }
+            }
         }
         if (result != null && result.status == ProbeStatus.OK) {
             Column(horizontalAlignment = Alignment.End) {

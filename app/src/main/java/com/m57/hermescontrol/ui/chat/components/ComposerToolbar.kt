@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.outlined.AddComment
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.Tune
@@ -110,6 +111,7 @@ fun ComposerToolbar(
     onReasoningSelected: (String?) -> Unit,
     onMicTap: () -> Unit,
     onSessionsTap: () -> Unit = {},
+    onNewChatTap: () -> Unit = {},
     onModelManagerTap: () -> Unit = {},
     onMediaModelsTap: () -> Unit = {},
     onSessionsLongPress: () -> Unit = {},
@@ -512,6 +514,25 @@ fun ComposerToolbar(
         // capability toggles and probe. Sits left of the sessions button.
         // Plain gesture-owning container like the sessions button (a Button's
         // internal clickable would eat the pointer events).
+        // New chat — the free slot left of the model-manager and sessions
+        // buttons; highest-frequency action that used to need the drawer.
+        Box(
+            modifier =
+                Modifier
+                    .size(ControlSize)
+                    .clip(CircleShape)
+                    .background(palette.control)
+                    .combinedClickable(onClick = onNewChatTap)
+                    .testTag("new_chat_button"),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.AddComment,
+                contentDescription = stringResource(R.string.chat_new_chat),
+                tint = palette.onControl,
+            )
+        }
+
         // Model manager — tap opens the text-model sheet, hold opens the
         // non-text (auxiliary: vision/compression/titles) management window.
         Box(
