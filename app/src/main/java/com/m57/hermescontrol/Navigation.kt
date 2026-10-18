@@ -428,93 +428,93 @@ private fun HermesDrawerContent(
     // drawer (Surface) does not. Owning the Column here keeps the body correct
     // in either host instead of stacking every child at the top.
     Column {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.padding(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 2.dp),
-    ) {
-        Text(
-            text = stringResource(R.string.nav_drawer_title),
-            style =
-                MaterialTheme.typography.headlineSmall.copy(
-                    fontWeight = FontWeight.Bold,
-                ),
-            color = MaterialTheme.colorScheme.primary,
-        )
-        Spacer(modifier = Modifier.width(8.dp))
-        Box(
-            modifier =
-                Modifier
-                    .size(10.dp)
-                    .background(color = statusColor, shape = CircleShape),
-        )
-    }
-    Text(
-        text = stringResource(R.string.nav_drawer_subtitle),
-        modifier = Modifier.padding(start = 16.dp, bottom = 8.dp, end = 16.dp),
-        style = MaterialTheme.typography.labelMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
-    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-
-    for (section in sections) {
-        Text(
-            text = stringResource(section.titleRes).uppercase(),
-            modifier =
-                Modifier.padding(
-                    start = 16.dp,
-                    top = 8.dp,
-                    bottom = 4.dp,
-                    end = 16.dp,
-                ),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontWeight = FontWeight.SemiBold,
-        )
-        ScreenRegistry.ALL_SCREENS
-            .filter { it.drawerSection == section && hasToken }
-            .forEach { entry ->
-                NavigationDrawerItem(
-                    icon = { Icon(entry.icon, contentDescription = null) },
-                    label = { Text(stringResource(entry.labelRes)) },
-                    selected = currentScreen == entry.key,
-                    onClick = {
-                        closeDrawer()
-                        NavigationController.navigateTo(entry.key)
-                    },
-                    colors =
-                        NavigationDrawerItemDefaults.colors(
-                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                            selectedTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                            selectedIconColor = MaterialTheme.colorScheme.primary,
-                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        ),
-                )
-            }
-    }
-
-    if (showSupportButton) {
-        Spacer(modifier = Modifier.height(8.dp))
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-        Spacer(modifier = Modifier.height(12.dp))
-        FilledTonalButton(
-            onClick = {
-                closeDrawer()
-                runCatching {
-                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(KO_FI_URL)))
-                }
-            },
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 2.dp),
         ) {
-            Icon(
-                Icons.Filled.Favorite,
-                contentDescription = null,
-                modifier = Modifier.size(ButtonDefaults.IconSize),
+            Text(
+                text = stringResource(R.string.nav_drawer_title),
+                style =
+                    MaterialTheme.typography.headlineSmall.copy(
+                        fontWeight = FontWeight.Bold,
+                    ),
+                color = MaterialTheme.colorScheme.primary,
             )
-            Spacer(modifier = Modifier.width(ButtonDefaults.IconSpacing))
-            Text(stringResource(R.string.nav_drawer_support))
+            Spacer(modifier = Modifier.width(8.dp))
+            Box(
+                modifier =
+                    Modifier
+                        .size(10.dp)
+                        .background(color = statusColor, shape = CircleShape),
+            )
         }
-        Spacer(modifier = Modifier.height(12.dp))
-    }
+        Text(
+            text = stringResource(R.string.nav_drawer_subtitle),
+            modifier = Modifier.padding(start = 16.dp, bottom = 8.dp, end = 16.dp),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+    
+        for (section in sections) {
+            Text(
+                text = stringResource(section.titleRes).uppercase(),
+                modifier =
+                    Modifier.padding(
+                        start = 16.dp,
+                        top = 8.dp,
+                        bottom = 4.dp,
+                        end = 16.dp,
+                    ),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontWeight = FontWeight.SemiBold,
+            )
+            ScreenRegistry.ALL_SCREENS
+                .filter { it.drawerSection == section && hasToken }
+                .forEach { entry ->
+                    NavigationDrawerItem(
+                        icon = { Icon(entry.icon, contentDescription = null) },
+                        label = { Text(stringResource(entry.labelRes)) },
+                        selected = currentScreen == entry.key,
+                        onClick = {
+                            closeDrawer()
+                            NavigationController.navigateTo(entry.key)
+                        },
+                        colors =
+                            NavigationDrawerItemDefaults.colors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                selectedTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                selectedIconColor = MaterialTheme.colorScheme.primary,
+                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            ),
+                    )
+                }
+        }
+    
+        if (showSupportButton) {
+            Spacer(modifier = Modifier.height(8.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Spacer(modifier = Modifier.height(12.dp))
+            FilledTonalButton(
+                onClick = {
+                    closeDrawer()
+                    runCatching {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(KO_FI_URL)))
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            ) {
+                Icon(
+                    Icons.Filled.Favorite,
+                    contentDescription = null,
+                    modifier = Modifier.size(ButtonDefaults.IconSize),
+                )
+                Spacer(modifier = Modifier.width(ButtonDefaults.IconSpacing))
+                Text(stringResource(R.string.nav_drawer_support))
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+        }
     }
 }
