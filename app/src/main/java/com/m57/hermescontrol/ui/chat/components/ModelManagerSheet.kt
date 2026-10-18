@@ -4,6 +4,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -81,6 +82,8 @@ fun ModelManagerSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var showAddProvider by remember { mutableStateOf(false) }
     var confirmRemove by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var confirmRemoveProvider by remember { mutableStateOf<String?>(null) }
+    var collapsedProviders by remember { mutableStateOf(setOf<String>()) }
 
     LaunchedEffect(Unit) {
         viewModel.load()
@@ -125,24 +128,38 @@ fun ModelManagerSheet(
                                 uiState.providers,
                                 uiState.customModels,
                                 uiState.hiddenModels,
+                                uiState.hiddenProviders,
                                 uiState.query,
                             )
                         LazyColumn(modifier = Modifier.fillMaxSize().testTag("model_manager_list")) {
                             visible.forEach { (provider, models) ->
+                                val collapsed = provider.slug in collapsedProviders
                                 item(key = "header_${provider.slug}") {
                                     ProviderHeader(
                                         provider = provider,
+                                        collapsed = collapsed,
+                                        onToggleCollapse = {
+                                            collapsedProviders =
+                                                if (collapsed) {
+                                                    collapsedProviders - provider.slug
+                                                } else {
+                                                    collapsedProviders + provider.slug
+                                                }
+                                        },
                                         onAddModel = { viewModel.addCustomModel(provider.slug, it) },
                                         onProbeProvider = { viewModel.probeCatalog() },
+                                        onRemoveProvider = { confirmRemoveProvider = provider.slug },
                                     )
                                 }
-                                items(models, key = { "model_${provider.slug}_$it" }) { model ->
-                                    ModelRow(
-                                        provider = provider,
-                                        model = model,
-                                        viewModel = viewModel,
-                                        onRemove = { confirmRemove = provider.slug to model },
-                                    )
+                                if (!collapsed) {
+                                    items(models, key = { "model_${provider.slug}_$it" }) { model ->
+                                        ModelRow(
+                                            provider = provider,
+                                            model = model,
+                                            viewModel = viewModel,
+                                            onRemove = { confirmRemove = provider.slug to model },
+                                        )
+                                    }
                                 }
                             }
                             item(key = "add_provider") {
@@ -177,6 +194,7 @@ fun ModelManagerSheet(
                     uiState.overrides.isNotEmpty() ||
                         uiState.customModels.isNotEmpty() ||
                         uiState.hiddenModels.isNotEmpty() ||
+                        uiState.hiddenProviders.isNotEmpty() ||
                         uiState.customProviders.isNotEmpty()
                 FilledTonalButton(
                     onClick = { viewModel.save() },
@@ -236,25 +254,67 @@ fun ModelManagerSheet(
         )
     }
 
+    confirmRemoveProvider?.let { slug ->
+        AlertDialog(
+            onDismissRequest = { confirmRemoveProvider = null },
+            title = { Text(stringResource(R.string.model_manager_remove_provider_title)) },
+            text = { Text(stringResource(R.string.model_manager_remove_provider_message, slug)) },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.stageRemoveProvider(slug)
+                        confirmRemoveProvider = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                    modifier = Modifier.testTag("model_manager_remove_provider_confirm"),
+                ) {
+                    Text(stringResource(R.string.action_delete))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmRemoveProvider = null }) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+            },
+        )
+    }
+
     ToastEffect(toastMessage = uiState.toastMessage, onClearToast = viewModel::toastShown)
 }
 
 @Composable
 private fun ProviderHeader(
     provider: ModelProvider,
+    collapsed: Boolean,
+    onToggleCollapse: () -> Unit,
     onAddModel: (String) -> Unit,
     onProbeProvider: () -> Unit,
+    onRemoveProvider: () -> Unit,
 ) {
     val spacing = LocalSpacing.current
     var adding by remember { mutableStateOf(false) }
     var draft by rememberSaveable { mutableStateOf("") }
     Column(modifier = Modifier.fillMaxWidth().padding(top = spacing.sm)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = provider.name ?: provider.slug,
-                style = MaterialTheme.typography.titleSmall,
-                modifier = Modifier.weight(1f),
-            )
+            Row(
+                modifier =
+                    Modifier
+                        .weight(1f)
+                        .clickable(onClick = onToggleCollapse)
+                        .testTag("model_provider_toggle_${provider.slug}"),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    imageVector = if (collapsed) Icons.Outlined.ExpandMore else Icons.Outlined.ExpandLess,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Text(
+                    text = provider.name ?: provider.slug,
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.padding(start = 4.dp),
+                )
+            }
             if (provider.authenticated == false) {
                 Text(
                     text = stringResource(R.string.model_manager_unauthenticated),
@@ -264,11 +324,23 @@ private fun ProviderHeader(
             }
             IconButton(
                 onClick = { adding = !adding },
-                modifier = Modifier.testTag("model_add_toggle_${provider.slug}"),
+                modifier = Modifier.size(32.dp).testTag("model_add_toggle_${provider.slug}"),
             ) {
                 Icon(
                     imageVector = if (adding) Icons.Outlined.Close else Icons.Outlined.Add,
                     contentDescription = stringResource(R.string.model_manager_add_model),
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+            IconButton(
+                onClick = onRemoveProvider,
+                modifier = Modifier.size(32.dp).testTag("model_provider_remove_${provider.slug}"),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Delete,
+                    contentDescription = stringResource(R.string.model_manager_remove_provider_title),
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(16.dp),
                 )
             }
         }
@@ -357,7 +429,12 @@ private fun ModelRow(
             }
         }
         if (expanded) {
-            Column(modifier = Modifier.fillMaxWidth().padding(start = 22.dp, bottom = 6.dp)) {
+            // Horizontal toggles (v1 layout): compact label+switch chips that
+            // wrap under the row instead of one full-width row per capability.
+            FlowRow(
+                modifier = Modifier.fillMaxWidth().padding(start = 22.dp, bottom = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
                 CapabilityToggle(
                     label = stringResource(R.string.model_manager_cap_reasoning),
                     checked = caps?.reasoningSupport == true,
@@ -402,9 +479,8 @@ private fun CapabilityToggle(
     onChange: (Boolean) -> Unit,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+        modifier = Modifier.padding(vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         Text(text = label, style = MaterialTheme.typography.bodySmall)
         Switch(checked = checked, onCheckedChange = onChange, modifier = Modifier.testTag(tag))

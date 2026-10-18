@@ -99,8 +99,10 @@ class ProbeViewModel : ViewModel() {
     }
 
     /** Probe every selected model sequentially (parallel probes would share the
-     * one WS session and corrupt each other's timing). Restores the session's
-     * original model assignment in a finally block. */
+     * one WS session and corrupt each other's timing). Each probe assigns the
+     * target model to scope "main" (the only assignment scope the server
+     * accepts for chat models); the original main assignment is restored in a
+     * finally block, so probing never leaves the server on the last model. */
     fun runProbes(
         sessionId: String?,
         currentModelLabel: String?,
@@ -134,7 +136,7 @@ class ProbeViewModel : ViewModel() {
                             safeApiCall {
                                 ApiClient.hermesApi.setModelAssignment(
                                     ModelAssignmentRequest(
-                                        scope = "session",
+                                        scope = "main",
                                         provider = originalProvider,
                                         model = originalModel,
                                     ),
@@ -162,14 +164,15 @@ class ProbeViewModel : ViewModel() {
             state.copy(results = state.results + (k to ProbeResult(provider, model, ProbeStatus.RUNNING)))
         }
 
-        // Assign the model to this session scope only (scope = "session"), so
-        // the global default model is untouched.
+        // The server only accepts scope "main" or "auxiliary" (a "session"
+        // scope does not exist), so probing temporarily sets the GLOBAL main
+        // model; runProbes restores the original assignment in its finally.
         when (
             val assign =
                 safeApiCall {
                     ApiClient.hermesApi.setModelAssignment(
                         ModelAssignmentRequest(
-                            scope = "session",
+                            scope = "main",
                             provider = provider,
                             model = model,
                         ),

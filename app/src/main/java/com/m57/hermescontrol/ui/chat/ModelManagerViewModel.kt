@@ -67,6 +67,10 @@ data class ModelManagerUiState(
      * an entry without deleting catalog data (same semantics as the documented
      * provider-level `enabled: false`). */
     val hiddenModels: Set<String> = emptySet(),
+    /** Providers staged for removal after the confirm popup. Written as
+     * `providers.<slug>.enabled: false` on Save (the documented disable key) —
+     * the catalog entry survives, the provider leaves the manager. */
+    val hiddenProviders: Set<String> = emptySet(),
     /** Custom providers staged in the add-provider sheet. */
     val customProviders: Map<String, CustomProviderDraft> = emptyMap(),
     val savedOnce: Boolean = false,
@@ -269,6 +273,26 @@ class ModelManagerViewModel : ViewModel() {
         _uiState.update { it.copy(customProviders = it.customProviders - slug) }
     }
 
+    /** Stage a configured provider for removal: on Save it is written as
+     * `providers.<slug>.enabled = false`. A staged-but-unsaved custom provider
+     * is dropped from the staging map instead (it never reached config). */
+    fun stageRemoveProvider(slug: String) {
+        _uiState.update { state ->
+            if (slug in state.customProviders) {
+                state.copy(customProviders = state.customProviders - slug)
+            } else {
+                state.copy(
+                    hiddenProviders = state.hiddenProviders + slug,
+                    toastMessage = "Staged provider removal — Save to write to config",
+                )
+            }
+        }
+    }
+
+    fun unstageRemoveProvider(slug: String) {
+        _uiState.update { it.copy(hiddenProviders = it.hiddenProviders - slug) }
+    }
+
     /** Persist staged overrides, hidden models, custom models, and custom
      * providers through the structured config update (server merges into the
      * active profile). Keys follow the documented schema:
@@ -281,6 +305,7 @@ class ModelManagerViewModel : ViewModel() {
             state.overrides.isNotEmpty() ||
                 state.customModels.isNotEmpty() ||
                 state.hiddenModels.isNotEmpty() ||
+                state.hiddenProviders.isNotEmpty() ||
                 state.customProviders.isNotEmpty()
         if (!dirty) return
         viewModelScope.launch {
@@ -357,7 +382,9 @@ class ModelManagerViewModel : ViewModel() {
                         .forEach { (provider, keys) ->
                             // Custom models on a provider the user did not stage
                             // wholesale: append under providers.<slug>.models.
-                            if (provider !in state.customProviders) {
+                            // Skipped for providers staged for removal — the
+                            // disable write below owns that slug.
+                            if (provider !in state.customProviders && provider !in state.hiddenProviders) {
                                 put(
                                     provider,
                                     buildJsonObject {
@@ -371,6 +398,17 @@ class ModelManagerViewModel : ViewModel() {
                                 )
                             }
                         }
+                    // Provider removal: the documented disable key. The catalog
+                    // entry survives server-side; the provider drops out of the
+                    // configured set.
+                    state.hiddenProviders.forEach { slug ->
+                        put(
+                            slug,
+                            buildJsonObject {
+                                put("enabled", JsonPrimitive(false))
+                            },
+                        )
+                    }
                 }
 
             val body =
@@ -411,10 +449,17 @@ fun filterProviders(
     providers: List<ModelProvider>,
     customModels: Set<String>,
     hiddenModels: Set<String>,
+    hiddenProviders: Set<String>,
     query: String,
 ): List<Pair<ModelProvider, List<String>>> {
     val q = query.trim().lowercase()
     return providers.mapNotNull { provider ->
+        // Only providers that are actually in config belong in the manager:
+        // the server flags them via `authenticated`; providers staged for
+        // removal disappear immediately.
+        if (provider.authenticated != true || provider.slug in hiddenProviders) {
+            return@mapNotNull null
+        }
         val catalogModels = provider.models.orEmpty()
         val staged =
             customModels

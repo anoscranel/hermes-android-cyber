@@ -645,7 +645,10 @@ fun ComposerToolbar(
         Box(
             modifier =
                 Modifier
-                    .size(if (showSend) 48.dp else ControlSize)
+                    // Pinned at ControlSize: upstream grew the button to 48.dp
+                    // while a draft exists; theta wants a constant-size action
+                    // button so typing never shifts the composer layout.
+                    .size(ControlSize)
                     .clip(CircleShape)
                     .background(
                         if (!showSend && isListening) {

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -31,6 +32,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -44,6 +48,7 @@ import com.m57.hermescontrol.theme.LocalSpacing
 import com.m57.hermescontrol.ui.chat.ProbeResult
 import com.m57.hermescontrol.ui.chat.ProbeStatus
 import com.m57.hermescontrol.ui.chat.ProbeViewModel
+import com.m57.hermescontrol.ui.common.SearchBar
 
 /**
  * Probe-testing sheet: select models from the loaded catalog, then fire a
@@ -67,6 +72,19 @@ fun ProbeSheet(
         viewModel.initResults(catalog)
     }
 
+    var query by remember { mutableStateOf("") }
+    val filteredCatalog =
+        remember(catalog, query) {
+            val q = query.trim().lowercase()
+            if (q.isEmpty()) {
+                catalog
+            } else {
+                catalog.filter { (provider, model) ->
+                    model.lowercase().contains(q) || provider.lowercase().contains(q)
+                }
+            }
+        }
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
@@ -78,12 +96,19 @@ fun ProbeSheet(
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(vertical = spacing.sm),
             )
+            SearchBar(
+                query = query,
+                onQueryChange = { query = it },
+                placeholder = stringResource(R.string.probe_search_placeholder),
+                modifier = Modifier.testTag("probe_search"),
+            )
+            Spacer(modifier = Modifier.height(4.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 TextButton(
-                    onClick = { viewModel.selectAll(catalog) },
+                    onClick = { viewModel.selectAll(filteredCatalog) },
                     modifier = Modifier.testTag("probe_select_all"),
                 ) {
                     Text(stringResource(R.string.probe_select_all))
@@ -103,7 +128,7 @@ fun ProbeSheet(
             HorizontalDivider()
 
             LazyColumn(modifier = Modifier.weight(1f).testTag("probe_list")) {
-                items(catalog, key = { "${it.first}:${it.second}" }) { (provider, model) ->
+                items(filteredCatalog, key = { "${it.first}:${it.second}" }) { (provider, model) ->
                     val k = "$provider:$model"
                     ProbeRow(
                         provider = provider,

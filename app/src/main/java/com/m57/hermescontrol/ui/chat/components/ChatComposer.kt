@@ -15,7 +15,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.content.ReceiveContentListener
 import androidx.compose.foundation.content.contentReceiver
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -66,7 +67,10 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -248,18 +252,24 @@ fun ChatInputBar(
                     Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 12.dp, vertical = 8.dp)
+                        // Observe drags in the Initial pass, BEFORE children
+                        // (text field, suggestions) consume them: the bottom
+                        // toolbar half used to get the gesture, the top half
+                        // never did. We never consume — only accumulate and
+                        // fire on a deliberate upward swipe.
                         .pointerInput(onSwipeUp) {
-                            var dragDistance = 0f
-                            detectVerticalDragGestures(
-                                onVerticalDrag = { _, dragAmount ->
-                                    dragDistance += dragAmount
-                                },
-                                onDragEnd = {
-                                    if (dragDistance < -120f) onSwipeUp()
-                                    dragDistance = 0f
-                                },
-                                onDragCancel = { dragDistance = 0f },
-                            )
+                            awaitEachGesture {
+                                var dragDistance = 0f
+                                awaitFirstDown(requireUnconsumed = false)
+                                do {
+                                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                                    val change = event.changes.firstOrNull() ?: break
+                                    if (change.positionChanged()) {
+                                        dragDistance += change.positionChange().y
+                                    }
+                                } while (event.changes.any { it.pressed })
+                                if (dragDistance < -120f) onSwipeUp()
+                            }
                         },
                 shape = MaterialTheme.shapes.large,
                 color = palette.card,
