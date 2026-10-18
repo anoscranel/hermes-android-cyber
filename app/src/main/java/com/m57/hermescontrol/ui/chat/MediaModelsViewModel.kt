@@ -47,7 +47,10 @@ class MediaModelsViewModel : ViewModel() {
                 }
             val tasks =
                 when (auxResult) {
-                    is NetworkResult.Success -> auxResult.data.tasks
+                    is NetworkResult.Success -> {
+                        auxResult.data.tasks
+                    }
+
                     is NetworkResult.Failure -> {
                         _uiState.update {
                             it.copy(isLoading = false, errorMessage = auxResult.error.message)
@@ -57,12 +60,15 @@ class MediaModelsViewModel : ViewModel() {
                 }
             val pairs =
                 when (catalogResult) {
-                    is NetworkResult.Success ->
+                    is NetworkResult.Success -> {
                         catalogResult.data.providers.flatMap { provider ->
                             provider.models.orEmpty().map { model -> provider.slug to model }
                         }
+                    }
 
-                    is NetworkResult.Failure -> emptyList()
+                    is NetworkResult.Failure -> {
+                        emptyList()
+                    }
                 }
             _uiState.update {
                 it.copy(isLoading = false, tasks = tasks, catalogPairs = pairs)

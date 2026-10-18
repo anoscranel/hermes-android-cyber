@@ -181,7 +181,9 @@ class ProbeViewModel : ViewModel() {
                 return
             }
 
-            is NetworkResult.Success -> Unit
+            is NetworkResult.Success -> {
+                Unit
+            }
         }
 
         val sendStart = System.currentTimeMillis()
