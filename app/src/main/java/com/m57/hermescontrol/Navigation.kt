@@ -455,7 +455,7 @@ private fun HermesDrawerContent(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-    
+
         for (section in sections) {
             Text(
                 text = stringResource(section.titleRes).uppercase(),
@@ -492,7 +492,7 @@ private fun HermesDrawerContent(
                     )
                 }
         }
-    
+
         if (showSupportButton) {
             Spacer(modifier = Modifier.height(8.dp))
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
