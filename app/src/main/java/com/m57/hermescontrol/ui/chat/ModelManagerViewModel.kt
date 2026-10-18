@@ -125,10 +125,18 @@ class ModelManagerViewModel : ViewModel() {
         _uiState.update { it.copy(toastMessage = null) }
     }
 
-    private fun key(provider: String, model: String) = "$provider:$model"
+    private fun key(
+        provider: String,
+        model: String,
+    ): String {
+        return "$provider:$model"
+    }
 
     /** Effective capability for a model: user override wins over catalog. */
-    fun effectiveCapabilities(provider: String, model: String): ModelCapabilities? {
+    fun effectiveCapabilities(
+        provider: String,
+        model: String,
+    ): ModelCapabilities? {
         val state = _uiState.value
         val catalog =
             state.providers
@@ -161,7 +169,10 @@ class ModelManagerViewModel : ViewModel() {
         }
     }
 
-    fun addCustomModel(providerSlug: String, modelName: String) {
+    fun addCustomModel(
+        providerSlug: String,
+        modelName: String,
+    ) {
         val name = modelName.trim()
         if (name.isEmpty()) return
         _uiState.update {
@@ -172,7 +183,10 @@ class ModelManagerViewModel : ViewModel() {
         }
     }
 
-    fun removeCustomModel(providerSlug: String, modelName: String) {
+    fun removeCustomModel(
+        providerSlug: String,
+        modelName: String,
+    ) {
         val k = key(providerSlug, modelName)
         _uiState.update {
             it.copy(
