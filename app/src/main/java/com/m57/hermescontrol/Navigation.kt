@@ -292,7 +292,7 @@ fun MainNavigation(sessionId: String? = null) {
                     modifier = Modifier.verticalScroll(rememberScrollState()),
                 ) {
                     HermesDrawerContent(
-                        sections = listOf(DrawerSection.CONVERSE, DrawerSection.AUTOMATE),
+                        sections = listOf(DrawerSection.CONVERSE, DrawerSection.AUTOMATE, DrawerSection.INSPECT),
                         currentScreen = currentScreen,
                         hasToken = hasToken,
                         showSupportButton = true,
@@ -374,7 +374,7 @@ fun MainNavigation(sessionId: String? = null) {
                         tonalElevation = 1.dp,
                     ) {
                         HermesDrawerContent(
-                            sections = listOf(DrawerSection.CONFIGURE, DrawerSection.INSPECT),
+                            sections = listOf(DrawerSection.CONFIGURE),
                             currentScreen = currentScreen,
                             hasToken = hasToken,
                             showSupportButton = false,

@@ -117,6 +117,7 @@ import com.m57.hermescontrol.ui.chat.components.ReactionHeartsOverlay
 import com.m57.hermescontrol.ui.chat.components.ReloginDialog
 import com.m57.hermescontrol.ui.chat.components.ReplyErrorCard
 import com.m57.hermescontrol.ui.chat.components.SearchBarRow
+import com.m57.hermescontrol.ui.chat.components.ModelManagerSheet
 import com.m57.hermescontrol.ui.chat.components.SessionIntegrationsSheet
 import com.m57.hermescontrol.ui.chat.components.SessionsSheet
 import com.m57.hermescontrol.ui.chat.components.SideQuestionSheet
@@ -252,6 +253,7 @@ fun ChatScreen(
     val scrollController = rememberChatScrollController(listState, scrollScope)
     var showContextSheet by remember { mutableStateOf(false) }
     var sessionsSheetSection by rememberSaveable { mutableStateOf<HistorySection?>(null) }
+    var showModelManagerSheet by rememberSaveable { mutableStateOf(false) }
     var hasSessionActivity by remember { mutableStateOf(false) }
 
     // Slow-poll the server's active-session list while connected; a non-empty
@@ -991,6 +993,7 @@ fun ChatScreen(
                 pendingReasoningLevel = state.pendingReasoningLevel,
                 onModelTap = { viewModel.openModelPicker() },
                 onSessionsTap = { sessionsSheetSection = HistorySection.CONVERSATIONS },
+                onModelManagerTap = { showModelManagerSheet = true },
                 onSessionsLongPress = { sessionsSheetSection = HistorySection.AUTOMATIONS },
                 onSwipeUp = { sessionsSheetSection = HistorySection.CONVERSATIONS },
                 hasSessionActivity = hasSessionActivity,
@@ -1108,6 +1111,10 @@ fun ChatScreen(
                 currentSessionId = state.currentSessionId,
                 onOpenAutomations = { sessionsSheetSection = HistorySection.AUTOMATIONS },
             )
+        }
+
+        if (showModelManagerSheet) {
+            ModelManagerSheet(onDismiss = { showModelManagerSheet = false })
         }
 
         if (showContextSheet) {

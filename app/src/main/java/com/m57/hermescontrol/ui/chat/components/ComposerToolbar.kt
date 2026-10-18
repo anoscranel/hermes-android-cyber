@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -109,6 +110,7 @@ fun ComposerToolbar(
     onReasoningSelected: (String?) -> Unit,
     onMicTap: () -> Unit,
     onSessionsTap: () -> Unit = {},
+    onModelManagerTap: () -> Unit = {},
     onSessionsLongPress: () -> Unit = {},
     hasSessionActivity: Boolean = false,
     modifier: Modifier = Modifier,
@@ -503,6 +505,27 @@ fun ComposerToolbar(
                     }
                 }
             }
+        }
+
+        // Model manager button — opens the provider/model catalog sheet with
+        // capability toggles and probe. Sits left of the sessions button.
+        // Plain gesture-owning container like the sessions button (a Button's
+        // internal clickable would eat the pointer events).
+        Box(
+            modifier =
+                Modifier
+                    .size(ControlSize)
+                    .clip(CircleShape)
+                    .background(palette.control)
+                    .combinedClickable(onClick = onModelManagerTap)
+                    .testTag("model_manager_button"),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Tune,
+                contentDescription = stringResource(R.string.chat_open_model_manager),
+                tint = palette.onControl,
+            )
         }
 
         // Sessions button — tap opens the conversations sheet, hold opens the
