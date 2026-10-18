@@ -128,9 +128,7 @@ class ModelManagerViewModel : ViewModel() {
     private fun key(
         provider: String,
         model: String,
-    ): String {
-        return "$provider:$model"
-    }
+    ) = "$provider:$model"
 
     /** Effective capability for a model: user override wins over catalog. */
     fun effectiveCapabilities(

@@ -217,7 +217,10 @@ class ComposerInteractionTest {
     @Test
     fun longModelName_remainsScrollableAndDoesNotTriggerPicker() {
         val longModel = "openrouter/some-extremely-long-model-name-preview-2026-with-extra-characters"
-        setComposer(model = longModel, composerWidth = 280.dp, showModelProvider = true)
+        // 340.dp: with the model-manager + sessions buttons the toolbar's fixed
+        // slots grew by ~88.dp; 280.dp squeezed the model chip so narrow the
+        // swipe could not move the label. Narrow, but scrollable.
+        setComposer(model = longModel, composerWidth = 340.dp, showModelProvider = true)
 
         composeTestRule.onNodeWithTag("reasoning_chip").assertIsDisplayed()
         composeTestRule.onNodeWithTag("mic_button").assertIsDisplayed()
@@ -262,7 +265,9 @@ class ComposerInteractionTest {
     fun changingModel_resetsScrolledLabelToTheStart() {
         val firstModel = "openrouter/some-extremely-long-model-name-preview-2026-with-extra-characters"
         val secondModel = "anthropic/another-extremely-long-model-name-preview-2026-with-extra-characters"
-        setComposer(model = firstModel, modelAfterTap = secondModel, composerWidth = 280.dp, showModelProvider = true)
+        // 340.dp: same width bump as longModelName_remainsScrollable… — the
+        // extra composer buttons shrank the pill below swipeable size at 280.dp.
+        setComposer(model = firstModel, modelAfterTap = secondModel, composerWidth = 340.dp, showModelProvider = true)
 
         val firstText = composeTestRule.onNodeWithText(firstModel)
         val leftBefore = firstText.getUnclippedBoundsInRoot().left

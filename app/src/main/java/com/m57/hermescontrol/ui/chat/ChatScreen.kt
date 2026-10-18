@@ -109,6 +109,7 @@ import com.m57.hermescontrol.ui.chat.components.ConnectionSetupSheet
 import com.m57.hermescontrol.ui.chat.components.ContextDetailSheet
 import com.m57.hermescontrol.ui.chat.components.ContextUsageChip
 import com.m57.hermescontrol.ui.chat.components.MediaViewerDialog
+import com.m57.hermescontrol.ui.chat.components.ModelManagerSheet
 import com.m57.hermescontrol.ui.chat.components.PendingSendRecovery
 import com.m57.hermescontrol.ui.chat.components.ProjectBadge
 import com.m57.hermescontrol.ui.chat.components.ProjectPickerChip
@@ -117,7 +118,6 @@ import com.m57.hermescontrol.ui.chat.components.ReactionHeartsOverlay
 import com.m57.hermescontrol.ui.chat.components.ReloginDialog
 import com.m57.hermescontrol.ui.chat.components.ReplyErrorCard
 import com.m57.hermescontrol.ui.chat.components.SearchBarRow
-import com.m57.hermescontrol.ui.chat.components.ModelManagerSheet
 import com.m57.hermescontrol.ui.chat.components.SessionIntegrationsSheet
 import com.m57.hermescontrol.ui.chat.components.SessionsSheet
 import com.m57.hermescontrol.ui.chat.components.SideQuestionSheet
