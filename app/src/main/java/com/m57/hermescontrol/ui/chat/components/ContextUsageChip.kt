@@ -202,6 +202,7 @@ fun ContextMeterRing(
             else -> MaterialTheme.colorScheme.primary
         }
 
+    val trackColor = MaterialTheme.colorScheme.surfaceVariant
     Box(
         modifier =
             modifier
@@ -220,7 +221,7 @@ fun ContextMeterRing(
                 )
             val arcSize = Size(diameter, diameter)
             drawArc(
-                color = MaterialTheme.colorScheme.surfaceVariant,
+                color = trackColor,
                 startAngle = 0f,
                 sweepAngle = 360f,
                 useCenter = false,
