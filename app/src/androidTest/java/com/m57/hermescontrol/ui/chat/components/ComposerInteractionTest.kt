@@ -227,26 +227,29 @@ class ComposerInteractionTest {
         val modelText = composeTestRule.onNodeWithText(longModel)
         val leftBefore = modelText.getUnclippedBoundsInRoot().left
 
-        // TEMP diagnostics for the swipe-vs-tap regression (removed after fix).
+        // TEMP diagnostics for the swipe-vs-tap regression (removed after fix):
+        // values ride the failure messages so they land in the CI report.
         val chipBounds =
             composeTestRule
                 .onNodeWithTag("model_chip")
                 .getUnclippedBoundsInRoot()
-        System.err.println(
-            "DIAG longModel: chipBounds=$chipBounds modelTapsBeforeSwipe=$modelTaps",
-        )
 
         composeTestRule.onNodeWithTag("model_chip").performTouchInput { swipeLeft() }
 
         val leftAfter = modelText.getUnclippedBoundsInRoot().left
-        System.err.println(
-            "DIAG longModel after swipe: modelTapsAfterSwipe=$modelTaps leftBefore=$leftBefore leftAfter=$leftAfter",
-        )
 
         composeTestRule.runOnIdle {
-            assertEquals("swiping the model must not open the picker", 0, modelTaps)
+            assertEquals(
+                "swiping the model must not open the picker " +
+                    "(DIAG chipBounds=$chipBounds leftBefore=$leftBefore leftAfter=$leftAfter taps=$modelTaps)",
+                0,
+                modelTaps,
+            )
         }
-        check(leftAfter < leftBefore) { "model text did not move after horizontal swipe" }
+        check(leftAfter < leftBefore) {
+            "model text did not move after horizontal swipe " +
+                "(DIAG chipBounds=$chipBounds leftBefore=$leftBefore leftAfter=$leftAfter)"
+        }
         composeTestRule.onNodeWithTag("reasoning_chip").assertIsDisplayed()
         composeTestRule.onNodeWithTag("mic_button").assertIsDisplayed()
     }
@@ -284,18 +287,15 @@ class ComposerInteractionTest {
 
         val firstText = composeTestRule.onNodeWithText(firstModel)
         val leftBefore = firstText.getUnclippedBoundsInRoot().left
-        // TEMP diagnostics for the swipe-vs-tap regression (removed after fix).
+        // TEMP diagnostics: values ride the failure messages to the CI report.
         val chipBounds =
             composeTestRule
                 .onNodeWithTag("model_chip")
                 .getUnclippedBoundsInRoot()
-        System.err.println(
-            "DIAG changingModel: chipBounds=$chipBounds leftBefore=$leftBefore modelTapsBeforeSwipe=$modelTaps",
-        )
         composeTestRule.onNodeWithTag("model_chip").performTouchInput { swipeLeft() }
-        System.err.println("DIAG changingModel after swipe: modelTapsAfterSwipe=$modelTaps")
         check(firstText.getUnclippedBoundsInRoot().left < leftBefore) {
-            "first model text did not move after horizontal swipe"
+            "first model text did not move after horizontal swipe " +
+                "(DIAG chipBounds=$chipBounds leftBefore=$leftBefore taps=$modelTaps)"
         }
 
         composeTestRule.onNodeWithTag("model_chip").performClick()
