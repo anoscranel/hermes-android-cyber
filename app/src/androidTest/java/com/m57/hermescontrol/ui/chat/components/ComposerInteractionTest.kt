@@ -228,13 +228,18 @@ class ComposerInteractionTest {
         val leftBefore = modelText.getUnclippedBoundsInRoot().left
 
         // TEMP diagnostics for the swipe-vs-tap regression (removed after fix).
-        val chipBounds = composeTestRule.onNodeWithTag("model_chip").getUnclippedBoundsInRoot()
+        val chipBounds =
+            composeTestRule
+                .onNodeWithTag("model_chip")
+                .getUnclippedBoundsInRoot()
         val scrollRange =
             composeTestRule
                 .onNodeWithTag("model_chip")
                 .fetchSemanticsNode()
                 .let { it.config.getOrNull(androidx.compose.ui.semantics.SemanticsActions.ScrollBy) } != null
-        System.err.println("DIAG longModel: chipBounds=$chipBounds scrollable=$scrollRange modelTapsBeforeSwipe=$modelTaps")
+        System.err.println(
+            "DIAG longModel: chipBounds=$chipBounds scrollable=$scrollRange modelTapsBeforeSwipe=$modelTaps",
+        )
 
         composeTestRule.onNodeWithTag("model_chip").performTouchInput { swipeLeft() }
 
@@ -285,8 +290,13 @@ class ComposerInteractionTest {
         val firstText = composeTestRule.onNodeWithText(firstModel)
         val leftBefore = firstText.getUnclippedBoundsInRoot().left
         // TEMP diagnostics for the swipe-vs-tap regression (removed after fix).
-        val chipBounds = composeTestRule.onNodeWithTag("model_chip").getUnclippedBoundsInRoot()
-        System.err.println("DIAG changingModel: chipBounds=$chipBounds leftBefore=$leftBefore modelTapsBeforeSwipe=$modelTaps")
+        val chipBounds =
+            composeTestRule
+                .onNodeWithTag("model_chip")
+                .getUnclippedBoundsInRoot()
+        System.err.println(
+            "DIAG changingModel: chipBounds=$chipBounds leftBefore=$leftBefore modelTapsBeforeSwipe=$modelTaps",
+        )
         composeTestRule.onNodeWithTag("model_chip").performTouchInput { swipeLeft() }
         System.err.println("DIAG changingModel after swipe: modelTapsAfterSwipe=$modelTaps")
         check(firstText.getUnclippedBoundsInRoot().left < leftBefore) {
