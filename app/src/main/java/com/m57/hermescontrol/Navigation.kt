@@ -59,6 +59,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -416,6 +417,9 @@ private fun HermesDrawerContent(
     val context = LocalContext.current
     val connectionStatus by HermesWsClient.connectionStatus.collectAsState()
     var drawerQuery by remember { mutableStateOf("") }
+    // Configuration-aware resource access for the search filter (the
+    // LocalContext.getResourceValueCall lint rule rejects context.getString).
+    val resources = LocalResources.current
     val statusColor =
         when (connectionStatus) {
             ConnectionStatus.CONNECTED -> LocalHermesStatusColors.current.success
@@ -488,7 +492,7 @@ private fun HermesDrawerContent(
         if (searchActive) {
             val matches =
                 ScreenRegistry.ALL_SCREENS.filter { entry ->
-                    val label = context.getString(entry.labelRes).lowercase()
+                    val label = resources.getString(entry.labelRes).lowercase()
                     hasToken && searchTerms.all { label.contains(it) }
                 }
             if (matches.isEmpty()) {

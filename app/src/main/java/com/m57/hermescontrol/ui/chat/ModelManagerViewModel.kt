@@ -319,7 +319,6 @@ class ModelManagerViewModel : ViewModel() {
             val toast =
                 when (result) {
                     is NetworkResult.Success -> "Main model: $modelName"
-
                     is NetworkResult.Failure -> result.error.message
                 }
             _uiState.update { it.copy(toastMessage = toast) }

@@ -213,20 +213,24 @@ private fun ProbeRow(
     // decoration; the word is the state).
     val (dotColor, statusLabel) =
         when (result?.status) {
-            ProbeStatus.OK ->
+            ProbeStatus.OK -> {
                 statusColors.success to stringResource(R.string.probe_status_ok)
+            }
 
-            ProbeStatus.FAILED ->
+            ProbeStatus.FAILED -> {
                 statusColors.error to stringResource(R.string.probe_status_failed)
+            }
 
-            ProbeStatus.RUNNING ->
+            ProbeStatus.RUNNING -> {
                 statusColors.warning to stringResource(R.string.probe_status_running)
+            }
 
             ProbeStatus.PENDING,
             null,
-            ->
+            -> {
                 MaterialTheme.colorScheme.outline to
                     stringResource(R.string.probe_status_idle)
+            }
         }
     Row(
         modifier =

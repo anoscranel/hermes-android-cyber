@@ -219,12 +219,17 @@ class ProbeViewModel : ViewModel() {
             withTimeoutOrNull(PROBE_TIMEOUT_MS) {
                 HermesWsClient.events.first {
                     when (it) {
-                        is WsEvent.MessageComplete ->
+                        is WsEvent.MessageComplete -> {
                             it.sessionId == sessionId || it.storedSessionId == sessionId
+                        }
 
-                        is WsEvent.RpcError -> it.id == requestId
+                        is WsEvent.RpcError -> {
+                            it.id == requestId
+                        }
 
-                        else -> false
+                        else -> {
+                            false
+                        }
                     }
                 }
             }
