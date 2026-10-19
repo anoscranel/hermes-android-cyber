@@ -227,8 +227,21 @@ class ComposerInteractionTest {
         val modelText = composeTestRule.onNodeWithText(longModel)
         val leftBefore = modelText.getUnclippedBoundsInRoot().left
 
+        // TEMP diagnostics for the swipe-vs-tap regression (removed after fix).
+        val chipBounds = composeTestRule.onNodeWithTag("model_chip").getUnclippedBoundsInRoot()
+        val scrollRange =
+            composeTestRule
+                .onNodeWithTag("model_chip")
+                .fetchSemanticsNode()
+                .let { it.config.getOrNull(androidx.compose.ui.semantics.SemanticsActions.ScrollBy) } != null
+        System.err.println("DIAG longModel: chipBounds=$chipBounds scrollable=$scrollRange modelTapsBeforeSwipe=$modelTaps")
+
         composeTestRule.onNodeWithTag("model_chip").performTouchInput { swipeLeft() }
+
         val leftAfter = modelText.getUnclippedBoundsInRoot().left
+        System.err.println(
+            "DIAG longModel after swipe: modelTapsAfterSwipe=$modelTaps leftBefore=$leftBefore leftAfter=$leftAfter",
+        )
 
         composeTestRule.runOnIdle {
             assertEquals("swiping the model must not open the picker", 0, modelTaps)
@@ -271,7 +284,11 @@ class ComposerInteractionTest {
 
         val firstText = composeTestRule.onNodeWithText(firstModel)
         val leftBefore = firstText.getUnclippedBoundsInRoot().left
+        // TEMP diagnostics for the swipe-vs-tap regression (removed after fix).
+        val chipBounds = composeTestRule.onNodeWithTag("model_chip").getUnclippedBoundsInRoot()
+        System.err.println("DIAG changingModel: chipBounds=$chipBounds leftBefore=$leftBefore modelTapsBeforeSwipe=$modelTaps")
         composeTestRule.onNodeWithTag("model_chip").performTouchInput { swipeLeft() }
+        System.err.println("DIAG changingModel after swipe: modelTapsAfterSwipe=$modelTaps")
         check(firstText.getUnclippedBoundsInRoot().left < leftBefore) {
             "first model text did not move after horizontal swipe"
         }
