@@ -232,13 +232,8 @@ class ComposerInteractionTest {
             composeTestRule
                 .onNodeWithTag("model_chip")
                 .getUnclippedBoundsInRoot()
-        val scrollRange =
-            composeTestRule
-                .onNodeWithTag("model_chip")
-                .fetchSemanticsNode()
-                .let { it.config.getOrNull(androidx.compose.ui.semantics.SemanticsActions.ScrollBy) } != null
         System.err.println(
-            "DIAG longModel: chipBounds=$chipBounds scrollable=$scrollRange modelTapsBeforeSwipe=$modelTaps",
+            "DIAG longModel: chipBounds=$chipBounds modelTapsBeforeSwipe=$modelTaps",
         )
 
         composeTestRule.onNodeWithTag("model_chip").performTouchInput { swipeLeft() }
