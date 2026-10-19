@@ -188,7 +188,8 @@ class ComposerInteractionTest {
 
     @Test
     fun modelSideOfPill_opensModelPicker_only() {
-        setComposer()
+        // Width pinned so the six-button toolbar leaves the model chip tappable.
+        setComposer(composerWidth = 420.dp)
 
         composeTestRule.onNodeWithTag("model_chip").performClick()
 
@@ -217,10 +218,9 @@ class ComposerInteractionTest {
     @Test
     fun longModelName_remainsScrollableAndDoesNotTriggerPicker() {
         val longModel = "openrouter/some-extremely-long-model-name-preview-2026-with-extra-characters"
-        // 340.dp: with the model-manager + sessions buttons the toolbar's fixed
-        // slots grew by ~88.dp; 280.dp squeezed the model chip so narrow the
-        // swipe could not move the label. Narrow, but scrollable.
-        setComposer(model = longModel, composerWidth = 340.dp, showModelProvider = true)
+        // 420.dp: the six-button toolbar needs roughly 410dp before the model chip
+        // can render a readable label; 340 still clipped it after the shave.
+        setComposer(model = longModel, composerWidth = 420.dp, showModelProvider = true)
 
         composeTestRule.onNodeWithTag("reasoning_chip").assertIsDisplayed()
         composeTestRule.onNodeWithTag("mic_button").assertIsDisplayed()
@@ -265,9 +265,9 @@ class ComposerInteractionTest {
     fun changingModel_resetsScrolledLabelToTheStart() {
         val firstModel = "openrouter/some-extremely-long-model-name-preview-2026-with-extra-characters"
         val secondModel = "anthropic/another-extremely-long-model-name-preview-2026-with-extra-characters"
-        // 340.dp: same width bump as longModelName_remainsScrollable… — the
-        // extra composer buttons shrank the pill below swipeable size at 280.dp.
-        setComposer(model = firstModel, modelAfterTap = secondModel, composerWidth = 340.dp, showModelProvider = true)
+        // 420.dp: same width reasoning as the sibling swipe test — the
+        // six-button toolbar squeezes the pill below usability below that.
+        setComposer(model = firstModel, modelAfterTap = secondModel, composerWidth = 420.dp, showModelProvider = true)
 
         val firstText = composeTestRule.onNodeWithText(firstModel)
         val leftBefore = firstText.getUnclippedBoundsInRoot().left
@@ -362,7 +362,7 @@ class ComposerInteractionTest {
 
     @Test
     fun defaultComposer_showsOnlyModelNameWithoutProvider() {
-        setComposer(model = "openai/gpt-5.5", showModelProvider = false)
+        setComposer(model = "openai/gpt-5.5", composerWidth = 420.dp, showModelProvider = false)
 
         composeTestRule.onNodeWithText("gpt-5.5").assertIsDisplayed()
         composeTestRule.onNodeWithText("openai/gpt-5.5").assertDoesNotExist()
@@ -370,7 +370,7 @@ class ComposerInteractionTest {
 
     @Test
     fun enabledComposer_showsProviderAndModelName() {
-        setComposer(model = "openai/gpt-5.5", showModelProvider = true)
+        setComposer(model = "openai/gpt-5.5", composerWidth = 420.dp, showModelProvider = true)
 
         composeTestRule.onNodeWithText("openai/gpt-5.5").assertIsDisplayed()
         composeTestRule.onNodeWithText("gpt-5.5").assertDoesNotExist()
@@ -378,7 +378,7 @@ class ComposerInteractionTest {
 
     @Test
     fun defaultComposer_showsOnlyFinalModelSegmentForNestedProvider() {
-        setComposer(model = "openrouter/openai/gpt-5", showModelProvider = false)
+        setComposer(model = "openrouter/openai/gpt-5", composerWidth = 420.dp, showModelProvider = false)
 
         composeTestRule.onNodeWithText("gpt-5").assertIsDisplayed()
         composeTestRule.onNodeWithText("openai/gpt-5").assertDoesNotExist()

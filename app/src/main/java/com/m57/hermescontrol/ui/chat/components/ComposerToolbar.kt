@@ -223,7 +223,10 @@ fun ComposerToolbar(
                 .padding(top = 6.dp)
                 .testTag("composer_toolbar"),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        // Spacing tightened 8→6dp: batch-4's sixth button currently squeezes
+        // the weighted model pill to ~0dp on narrow widths, clipping the
+        // model label and breaking the picker tap — this buys it back.
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         // Attach button
         FilledIconButton(
@@ -279,7 +282,11 @@ fun ComposerToolbar(
                             Modifier
                                 .fillMaxHeight()
                                 .wrapContentHeight()
-                                .padding(start = 16.dp, end = 6.dp),
+                                // Padding tightened 16/6 → 10/4: with the
+                                // batch-4 sixth button these less-attached
+                                // pixels decide whether a short "gpt-5" label
+                                // is visible at all in the weighted pill.
+                                .padding(start = 10.dp, end = 4.dp),
                     )
                 }
 
@@ -290,10 +297,14 @@ fun ComposerToolbar(
                             Modifier
                                 .fillMaxHeight()
                                 .clickable(enabled = reasoningInteractive) { showReasoningMenu = true }
-                                .padding(start = 6.dp, end = 12.dp)
+                                // Reasoning chip padding/spacing tightened
+                                // 6/12+4 → 4/8+2: same batch-4 squeeze, the
+                                // chevron+level text must keep the model
+                                // label some weight-space to draw into.
+                                .padding(start = 4.dp, end = 8.dp)
                                 .testTag("reasoning_chip"),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
                         val levelColor =
                             palette.onControlVariant.copy(
