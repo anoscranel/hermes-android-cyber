@@ -145,14 +145,16 @@ class ComposerInteractionTest {
                 "model_manager_button",
                 "sessions_button",
             )
-        return tags.mapNotNull { tag ->
-            val node =
-                composeTestRule
-                    .onAllNodesWithTag(tag)
-                    .fetchSemanticsNodes()
-                    .firstOrNull()
-            node?.let { "$tag bounds=${it.boundsInRoot} size=${it.size}" }
-        }.joinToString(" | ")
+        return tags
+            .mapNotNull { tag ->
+                val node =
+                    composeTestRule
+                        .onAllNodesWithTag(tag)
+                        .fetchSemanticsNodes()
+                        .firstOrNull()
+                node?.let { "$tag bounds=${it.boundsInRoot} size=${it.size}" }
+            }
+            .joinToString(" | ")
     }
 
     private fun closeAttachmentTray() {
