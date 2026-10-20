@@ -16,14 +16,12 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.rememberScrollState
@@ -255,7 +253,12 @@ fun ComposerToolbar(
             Row(
                 modifier =
                     Modifier
-                        .width(IntrinsicSize.Max)
+                        // fillMaxWidth, not IntrinsicSize.Max: the pill's outer
+                        // Box has the correct weighted width, and sizing the Row
+                        // to content intrinsic max made the model chip measure
+                        // out to the full label width (~541dp), overflowing the
+                        // fixture and killing the swipe-scroll tests.
+                        .fillMaxWidth()
                         .height(ControlSize)
                         .clip(CircleShape)
                         .background(palette.control),

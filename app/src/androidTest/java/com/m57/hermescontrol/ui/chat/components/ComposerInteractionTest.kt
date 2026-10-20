@@ -227,29 +227,13 @@ class ComposerInteractionTest {
         val modelText = composeTestRule.onNodeWithText(longModel)
         val leftBefore = modelText.getUnclippedBoundsInRoot().left
 
-        // TEMP diagnostics for the swipe-vs-tap regression (removed after fix):
-        // values ride the failure messages so they land in the CI report.
-        val chipBounds =
-            composeTestRule
-                .onNodeWithTag("model_chip")
-                .getUnclippedBoundsInRoot()
-
         composeTestRule.onNodeWithTag("model_chip").performTouchInput { swipeLeft() }
-
         val leftAfter = modelText.getUnclippedBoundsInRoot().left
 
         composeTestRule.runOnIdle {
-            assertEquals(
-                "swiping the model must not open the picker " +
-                    "(DIAG chipBounds=$chipBounds leftBefore=$leftBefore leftAfter=$leftAfter taps=$modelTaps)",
-                0,
-                modelTaps,
-            )
+            assertEquals("swiping the model must not open the picker", 0, modelTaps)
         }
-        check(leftAfter < leftBefore) {
-            "model text did not move after horizontal swipe " +
-                "(DIAG chipBounds=$chipBounds leftBefore=$leftBefore leftAfter=$leftAfter)"
-        }
+        check(leftAfter < leftBefore) { "model text did not move after horizontal swipe" }
         composeTestRule.onNodeWithTag("reasoning_chip").assertIsDisplayed()
         composeTestRule.onNodeWithTag("mic_button").assertIsDisplayed()
     }
@@ -287,15 +271,9 @@ class ComposerInteractionTest {
 
         val firstText = composeTestRule.onNodeWithText(firstModel)
         val leftBefore = firstText.getUnclippedBoundsInRoot().left
-        // TEMP diagnostics: values ride the failure messages to the CI report.
-        val chipBounds =
-            composeTestRule
-                .onNodeWithTag("model_chip")
-                .getUnclippedBoundsInRoot()
         composeTestRule.onNodeWithTag("model_chip").performTouchInput { swipeLeft() }
         check(firstText.getUnclippedBoundsInRoot().left < leftBefore) {
-            "first model text did not move after horizontal swipe " +
-                "(DIAG chipBounds=$chipBounds leftBefore=$leftBefore taps=$modelTaps)"
+            "first model text did not move after horizontal swipe"
         }
 
         composeTestRule.onNodeWithTag("model_chip").performClick()
