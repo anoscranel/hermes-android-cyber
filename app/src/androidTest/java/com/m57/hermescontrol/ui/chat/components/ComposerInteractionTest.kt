@@ -15,6 +15,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextEquals
@@ -227,13 +229,19 @@ class ComposerInteractionTest {
         val modelText = composeTestRule.onNodeWithText(longModel)
         val leftBefore = modelText.getUnclippedBoundsInRoot().left
 
-        composeTestRule.onNodeWithTag("model_chip").performTouchInput { swipeLeft() }
+        val chipInteraction = composeTestRule.onNodeWithTag("model_chip")
+        chipInteraction.performTouchInput { swipeLeft() }
         val leftAfter = modelText.getUnclippedBoundsInRoot().left
+        val chipNode = chipInteraction.fetchSemanticsNode()
+        val scrollAxis = chipNode.config.getOrNull(SemanticsProperties.HorizontalScrollAxisRange)
+        val diag =
+            "taps=$modelTaps leftBefore=$leftBefore leftAfter=$leftAfter " +
+                "chipPos=${chipNode.positionInRoot} chipSize=${chipNode.size} scrollAxis=$scrollAxis"
 
         composeTestRule.runOnIdle {
-            assertEquals("swiping the model must not open the picker", 0, modelTaps)
+            assertEquals("swiping the model must not open the picker [$diag]", 0, modelTaps)
         }
-        check(leftAfter < leftBefore) { "model text did not move after horizontal swipe" }
+        check(leftAfter < leftBefore) { "model text did not move after horizontal swipe [$diag]" }
         composeTestRule.onNodeWithTag("reasoning_chip").assertIsDisplayed()
         composeTestRule.onNodeWithTag("mic_button").assertIsDisplayed()
     }
@@ -271,9 +279,17 @@ class ComposerInteractionTest {
 
         val firstText = composeTestRule.onNodeWithText(firstModel)
         val leftBefore = firstText.getUnclippedBoundsInRoot().left
-        composeTestRule.onNodeWithTag("model_chip").performTouchInput { swipeLeft() }
-        check(firstText.getUnclippedBoundsInRoot().left < leftBefore) {
-            "first model text did not move after horizontal swipe"
+        val chipInteraction = composeTestRule.onNodeWithTag("model_chip")
+        chipInteraction.performTouchInput { swipeLeft() }
+        val chipNode = chipInteraction.fetchSemanticsNode()
+        val scrollAxis = chipNode.config.getOrNull(SemanticsProperties.HorizontalScrollAxisRange)
+        val diag = "taps=$modelTaps chipSize=${chipNode.size} scrollAxis=$scrollAxis"
+        composeTestRule.runOnIdle {
+            assertEquals("the swipe must scroll, not open the picker [$diag]", 0, modelTaps)
+        }
+        val firstLeft = firstText.getUnclippedBoundsInRoot().left
+        check(firstLeft < leftBefore) {
+            "first model text did not move (leftBefore=$leftBefore firstLeft=$firstLeft $diag)"
         }
 
         composeTestRule.onNodeWithTag("model_chip").performClick()
