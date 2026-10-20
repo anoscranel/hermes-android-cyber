@@ -3,7 +3,7 @@ package com.m57.hermescontrol.ui.chat.components
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.text.input.clearText
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.runtime.Composable
@@ -110,7 +110,13 @@ class ComposerInteractionTest {
                 if (composerWidth == null) {
                     composer()
                 } else {
-                    Box(Modifier.width(composerWidth).testTag("composer_toolbar")) { composer() }
+                    // requiredWidth, not width: the CI emulator's screen is
+                    // 320dp wide, so plain width() clamps to 320 and the
+                    // six-button toolbar squeezes the model chip's swipeable
+                    // viewport to ~3px — inside touch slop, so swipeLeft()
+                    // came out as a tap. 380 gives the chip a real swipe lane
+                    // while the mic button stays partly on screen.
+                    Box(Modifier.requiredWidth(composerWidth).testTag("composer_toolbar")) { composer() }
                 }
             }
         }
@@ -140,7 +146,11 @@ class ComposerInteractionTest {
                 "sessions_button",
             )
         return tags.mapNotNull { tag ->
-            val node = composeTestRule.onAllNodesWithTag(tag).fetchSemanticsNodes().firstOrNull()
+            val node =
+                composeTestRule
+                    .onAllNodesWithTag(tag)
+                    .fetchSemanticsNodes()
+                    .firstOrNull()
             node?.let { "$tag bounds=${it.boundsInRoot} size=${it.size}" }
         }.joinToString(" | ")
     }
@@ -215,7 +225,7 @@ class ComposerInteractionTest {
     @Test
     fun modelSideOfPill_opensModelPicker_only() {
         // Width pinned so the six-button toolbar leaves the model chip tappable.
-        setComposer(composerWidth = 420.dp)
+        setComposer(composerWidth = 380.dp)
 
         composeTestRule.onNodeWithTag("model_chip").performClick()
 
@@ -244,9 +254,9 @@ class ComposerInteractionTest {
     @Test
     fun longModelName_remainsScrollableAndDoesNotTriggerPicker() {
         val longModel = "openrouter/some-extremely-long-model-name-preview-2026-with-extra-characters"
-        // 420.dp: the six-button toolbar needs roughly 410dp before the model chip
-        // can render a readable label; 340 still clipped it after the shave.
-        setComposer(model = longModel, composerWidth = 420.dp, showModelProvider = true)
+        // 380.dp via requiredWidth (see setComposer): enough pill width that the
+        // model chip's swipe lane clears touch slop; mic stays partly on screen.
+        setComposer(model = longModel, composerWidth = 380.dp, showModelProvider = true)
 
         composeTestRule.onNodeWithTag("reasoning_chip").assertIsDisplayed()
         composeTestRule.onNodeWithTag("mic_button").assertIsDisplayed()
@@ -273,7 +283,7 @@ class ComposerInteractionTest {
 
     @Test
     fun shortModelName_wideComposerKeepsPillCompact() {
-        setComposer(composerWidth = 420.dp)
+        setComposer(composerWidth = 380.dp)
 
         val toolbarBounds =
             composeTestRule
@@ -298,9 +308,8 @@ class ComposerInteractionTest {
     fun changingModel_resetsScrolledLabelToTheStart() {
         val firstModel = "openrouter/some-extremely-long-model-name-preview-2026-with-extra-characters"
         val secondModel = "anthropic/another-extremely-long-model-name-preview-2026-with-extra-characters"
-        // 420.dp: same width reasoning as the sibling swipe test — the
-        // six-button toolbar squeezes the pill below usability below that.
-        setComposer(model = firstModel, modelAfterTap = secondModel, composerWidth = 420.dp, showModelProvider = true)
+        // 380.dp: same geometry contract as the sibling swipe test.
+        setComposer(model = firstModel, modelAfterTap = secondModel, composerWidth = 380.dp, showModelProvider = true)
 
         val firstText = composeTestRule.onNodeWithText(firstModel)
         val leftBefore = firstText.getUnclippedBoundsInRoot().left
