@@ -22,6 +22,7 @@ import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -119,6 +120,29 @@ class ComposerInteractionTest {
         composeTestRule.onNodeWithTag("attachment_button").performClick()
         composeTestRule.mainClock.advanceTimeBy(300)
         composeTestRule.onNodeWithTag("attachment_tray").assertIsDisplayed()
+    }
+
+    /**
+     * Dumps the clipped on-screen bounds of every pill/toolbar slot. The batch-4
+     * swipe tests fail as tap-instead-of-scroll; this string decides whether the
+     * model chip's swipeable viewport collapsed to touch-slop size or whether the
+     * gesture itself is being misrouted.
+     */
+    private fun toolbarGeometry(): String {
+        val tags =
+            listOf(
+                "composer_toolbar",
+                "attachment_button",
+                "model_chip",
+                "reasoning_chip",
+                "new_chat_button",
+                "model_manager_button",
+                "sessions_button",
+            )
+        return tags.mapNotNull { tag ->
+            val node = composeTestRule.onAllNodesWithTag(tag).fetchSemanticsNodes().firstOrNull()
+            node?.let { "$tag bounds=${it.boundsInRoot} size=${it.size}" }
+        }.joinToString(" | ")
     }
 
     private fun closeAttachmentTray() {
@@ -236,7 +260,8 @@ class ComposerInteractionTest {
         val scrollAxis = chipNode.config.getOrNull(SemanticsProperties.HorizontalScrollAxisRange)
         val diag =
             "taps=$modelTaps leftBefore=$leftBefore leftAfter=$leftAfter " +
-                "chipPos=${chipNode.positionInRoot} chipSize=${chipNode.size} scrollAxis=$scrollAxis"
+                "chipPos=${chipNode.positionInRoot} chipSize=${chipNode.size} " +
+                "scrollAxis=$scrollAxis geo=${toolbarGeometry()}"
 
         composeTestRule.runOnIdle {
             assertEquals("swiping the model must not open the picker [$diag]", 0, modelTaps)
@@ -283,7 +308,8 @@ class ComposerInteractionTest {
         chipInteraction.performTouchInput { swipeLeft() }
         val chipNode = chipInteraction.fetchSemanticsNode()
         val scrollAxis = chipNode.config.getOrNull(SemanticsProperties.HorizontalScrollAxisRange)
-        val diag = "taps=$modelTaps chipSize=${chipNode.size} scrollAxis=$scrollAxis"
+        val diag =
+            "taps=$modelTaps chipSize=${chipNode.size} scrollAxis=$scrollAxis geo=${toolbarGeometry()}"
         composeTestRule.runOnIdle {
             assertEquals("the swipe must scroll, not open the picker [$diag]", 0, modelTaps)
         }

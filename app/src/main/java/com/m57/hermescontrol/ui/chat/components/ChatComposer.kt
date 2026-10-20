@@ -15,6 +15,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.content.ReceiveContentListener
 import androidx.compose.foundation.content.contentReceiver
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -65,6 +67,10 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -247,14 +253,25 @@ fun ChatInputBar(
                     Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 12.dp, vertical = 8.dp)
-                        // EXPERIMENT (swipe-test bisect): the Initial-pass
-                        // swipe-up observer is neutralized. It is the only
-                        // gesture-affecting change since the last green
-                        // instrumented run; CI decides whether it is what turns
-                        // the model_chip horizontal swipe into a tap. Restore
-                        // scoped to the text field if innocent; rewrite if
-                        // guilty. onSwipeUp stays wired for that follow-up.
-                        .testTag("chat_composer_card"),
+                        // Observe drags in the Initial pass, BEFORE children
+                        // (text field, suggestions) consume them: the bottom
+                        // toolbar half used to get the gesture, the top half
+                        // never did. We never consume — only accumulate and
+                        // fire on a deliberate upward swipe.
+                        .pointerInput(onSwipeUp) {
+                            awaitEachGesture {
+                                var dragDistance = 0f
+                                awaitFirstDown(requireUnconsumed = false)
+                                do {
+                                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                                    val change = event.changes.firstOrNull() ?: break
+                                    if (change.positionChanged()) {
+                                        dragDistance += change.positionChange().y
+                                    }
+                                } while (event.changes.any { it.pressed })
+                                if (dragDistance < -120f) onSwipeUp()
+                            }
+                        },
                 shape = MaterialTheme.shapes.large,
                 color = palette.card,
                 border = BorderStroke(width = 1.dp, color = palette.cardBorder),
