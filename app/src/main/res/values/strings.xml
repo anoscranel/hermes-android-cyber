@@ -315,6 +315,7 @@
     <string name="chat_tool_compact_json">Compact JSON</string>
     <string name="content_desc_new_chat">New Chat</string>
     <string name="content_desc_scroll_to_bottom">Scroll to bottom</string>
+    <string name="content_desc_scroll_to_top">Scroll to top</string>
     <string name="content_desc_copy">Copy</string>
     <string name="content_desc_copied">Copied</string>
     <string name="content_desc_speak">Read aloud</string>
@@ -1599,6 +1600,8 @@
     <string name="sessions_sheet_selection_unarchive">Unarchive selected sessions</string>
     <string name="chat_open_model_manager">Manage models</string>
     <string name="chat_new_chat">New chat</string>
+    <string name="chat_overflow_menu_desc">More options</string>
+    <string name="chat_temp_chat_desc">Temporary chat</string>
     <string name="model_manager_title">Model manager</string>
     <string name="model_manager_search_placeholder">Filter providers and models…</string>
     <string name="model_manager_empty">No models match</string>

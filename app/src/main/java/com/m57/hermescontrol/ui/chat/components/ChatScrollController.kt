@@ -175,6 +175,16 @@ class ChatScrollController(
     /** FAB tap: resume following + clear unread. */
     fun resumeFollowing() = jumpToBottom(animated = true)
 
+    /**
+     * FAB up-state tap (batch-5B B5): animate to the oldest loaded message
+     * (index 0). The reader leaves the bottom, so follow is paused first —
+     * same ownership rule as an explicit history gesture.
+     */
+    fun jumpToTop() {
+        pauseFollowing()
+        launchScroll { listState.animateScrollToItem(0) }
+    }
+
     /** True when the FAB should be visible (not following bottom + content exists). */
     fun showFab(contentPresent: Boolean): Boolean = !isFollowingBottom && contentPresent
 

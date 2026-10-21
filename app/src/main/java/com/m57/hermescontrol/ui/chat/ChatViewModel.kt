@@ -327,9 +327,18 @@ data class ChatUiState(
     val isResumeRetrying: Boolean = false,
     /** Text staged to prefill the composer (e.g. from /undo). */
     val pendingPrefillText: String? = null,
+    /**
+     * Storage id of the session minted by the top-bar Temporary Chat toggle
+     * (batch-5B B3). Deleted the moment the user leaves it — switching to any
+     * other session, starting another new chat, or toggling the mode OFF.
+     */
+    val temporarySessionId: String? = null,
 ) {
     /** Convenience — derived from [connectionStatus]. */
     val isConnected: Boolean get() = connectionStatus == ConnectionStatus.CONNECTED
+
+    /** True while the live session is the temporary one. */
+    val isTemporaryChat: Boolean get() = temporarySessionId != null && temporarySessionId == currentSessionId
 
     /** False until the user (or agent) says something; the "Session created" marker does not count (#1527). */
     val hasConversation: Boolean get() = messages.any { !it.isSessionStartMarker() }
@@ -623,6 +632,12 @@ class ChatViewModel(
     private var sessionGeneration = 0L
     private var scopeGeneration = 0L
     private var mainTurnEpoch = 0L
+
+    /**
+     * Armed by the Temporary Chat toggle: the session minted by the in-flight
+     * SESSION_CREATE becomes [ChatUiState.temporarySessionId] when it lands.
+     */
+    private var pendingTemporarySessionArmed = false
     private var refreshSessionsJob: Job? = null
     private var refreshProjectsJob: Job? = null
     private var lastPendingSendCreatedAt = 0L
@@ -2105,6 +2120,7 @@ class ChatViewModel(
                 val resultMap = result as? Map<String, Any?>
                 val runtimeId = (resultMap?.get("session_id") as? String)?.takeIf { it.isNotBlank() }
                 if (runtimeId == null) {
+                    pendingTemporarySessionArmed = false
                     _uiState.update {
                         it.copy(isLoading = false, resumeError = "Invalid session creation response")
                     }
@@ -2118,10 +2134,13 @@ class ChatViewModel(
                 // do not resume this key until presence is confirmed.
                 sessionHasServerPresence = false
                 sessionGoneRecoveryInFlight = false
+                val temporaryId = storageId.takeIf { pendingTemporarySessionArmed }
+                pendingTemporarySessionArmed = false
                 _uiState.update {
                     it.copy(
                         currentSessionId = storageId,
                         isSessionReady = true,
+                        temporarySessionId = temporaryId ?: it.temporarySessionId,
                         isLoading = false,
                         messages = if (pendingInitialPrompt != null) it.messages else emptyList(),
                         chatTitle = "Hermes",
@@ -5281,6 +5300,12 @@ class ChatViewModel(
         setLoading: Boolean = true,
         project: ProjectInfo? = null,
     ) {
+        // Any new chat retires the temporary one: delete its row before the
+        // create so an abandoned temp session never lingers on the server.
+        _uiState.value.temporarySessionId?.let { tempId ->
+            _uiState.update { it.copy(temporarySessionId = null) }
+            deleteTemporarySession(tempId)
+        }
         // A fresh create has no persisted row until the first prompt.
         sessionHasServerPresence = false
         val generation = resetSessionState(sessionId = null, title = "Hermes", isLoading = setLoading)
@@ -5306,6 +5331,45 @@ class ChatViewModel(
                 if (generation == sessionGeneration && _uiState.value.isLoading) {
                     _uiState.update { it.copy(isLoading = false) }
                 }
+            }
+        }
+    }
+
+    /**
+     * Top-bar Temporary Chat toggle (batch-5B B3). ON mints a fresh session and
+     * remembers it as temporary; the row is deleted (best effort, the same
+     * `session delete` REST op the sessions sheet's row delete uses) the moment
+     * the user leaves it — switching sessions, starting another chat, or
+     * toggling OFF. OFF also lands the user on a fresh normal session.
+     */
+    fun toggleTemporaryChat() {
+        val tempId = _uiState.value.temporarySessionId
+        if (tempId != null) {
+            _uiState.update { it.copy(temporarySessionId = null) }
+            deleteTemporarySession(tempId)
+            pendingTemporarySessionArmed = false
+            // createNewSession's own temp-retire hook no-ops here: the flag is
+            // already cleared, so the row is deleted exactly once.
+            createNewSession()
+            return
+        }
+        pendingTemporarySessionArmed = true
+        createNewSession()
+    }
+
+    /**
+     * Best-effort delete for a temporary session — the same
+     * `hermesApi.deleteSession` the sessions sheet's swipe-delete uses
+     * (SessionsViewModel.confirmDeleteSession). A never-prompted temp session
+     * has no persisted row, so a delete failure there is expected and ignored.
+     */
+    private fun deleteTemporarySession(sessionId: String) {
+        viewModelScope.launch(ioDispatcher) {
+            safeApiCall {
+                ApiClient.hermesApi.deleteSession(sessionId)
+            }
+            if (AuthManager.getLastOpenedSessionId() == sessionId) {
+                AuthManager.clearLastOpenedSessionId()
             }
         }
     }
@@ -5698,6 +5762,15 @@ class ChatViewModel(
 
     fun switchSession(sessionId: String) {
         if (sessionId == _uiState.value.currentSessionId) return
+
+        // Leaving the temporary chat for another session: delete its row.
+        pendingTemporarySessionArmed = false
+        _uiState.value.temporarySessionId?.let { tempId ->
+            if (tempId != sessionId) {
+                _uiState.update { it.copy(temporarySessionId = null) }
+                deleteTemporarySession(tempId)
+            }
+        }
 
         // The id came from the gateway's own session list / picker — its row
         // is expected to exist, so resume it optimistically on reconnect even

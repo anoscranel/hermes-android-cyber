@@ -10,6 +10,8 @@ import com.m57.hermescontrol.data.ws.HermesWsClient
 import com.m57.hermescontrol.data.ws.WsEvent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -98,8 +100,12 @@ class ProbeViewModel : ViewModel() {
         }
     }
 
-    /** Probe every selected model sequentially (parallel probes would share the
-     * one WS session and corrupt each other's timing). Each probe assigns the
+    /** Probe every selected model with capped concurrency (batch-5B B6):
+     * chunks of [PROBE_PARALLELISM] run in parallel so probing doesn't
+     * serialize end to end. The cap stays small on purpose — MessageComplete
+     * correlation is session-based (there is exactly one WS session), so two
+     * concurrent probes on it can cross-attribute a completion; 3 keeps that
+     * risk bounded while roughly tripling throughput. Each probe assigns the
      * target model to scope "main" (the only assignment scope the server
      * accepts for chat models); the original main assignment is restored in a
      * finally block, so probing never leaves the server on the last model. */
@@ -125,10 +131,16 @@ class ProbeViewModel : ViewModel() {
             viewModelScope.launch {
                 _uiState.update { it.copy(isRunning = true) }
                 try {
-                    targets.forEach { k ->
-                        val provider = k.substringBefore(':')
-                        val model = k.substringAfter(':')
-                        probeOne(sessionId, provider, model)
+                    targets.chunked(PROBE_PARALLELISM).forEach { chunk ->
+                        val deferreds =
+                            chunk.map { k ->
+                                async(Dispatchers.IO) {
+                                    val provider = k.substringBefore(':')
+                                    val model = k.substringAfter(':')
+                                    probeOne(sessionId, provider, model)
+                                }
+                            }
+                        deferreds.awaitAll()
                     }
                 } finally {
                     if (!originalProvider.isNullOrBlank() && !originalModel.isNullOrBlank()) {
@@ -286,5 +298,8 @@ class ProbeViewModel : ViewModel() {
     companion object {
         private const val PROBE_PROMPT = "Reply with exactly: ok"
         private const val PROBE_TIMEOUT_MS = 45_000L
+
+        /** Safe upper bound for concurrent in-flight probes on the one WS session. */
+        private const val PROBE_PARALLELISM = 3
     }
 }

@@ -32,12 +32,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.input.clearText
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.outlined.AutoDelete
+import androidx.compose.material.icons.outlined.SwitchAccount
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
@@ -85,6 +85,7 @@ import com.m57.hermescontrol.ExternalActivityLifecycleGuard
 import com.m57.hermescontrol.HistoryScreen
 import com.m57.hermescontrol.LogsScreen
 import com.m57.hermescontrol.NavigationController
+import com.m57.hermescontrol.ProfilesScreen
 import com.m57.hermescontrol.R
 import com.m57.hermescontrol.data.local.AuthManager
 import com.m57.hermescontrol.data.model.Attachment
@@ -260,6 +261,9 @@ fun ChatScreen(
     var showModelManagerSheet by rememberSaveable { mutableStateOf(false) }
     var showMediaModelsSheet by rememberSaveable { mutableStateOf(false) }
     var showProbeSheet by rememberSaveable { mutableStateOf(false) }
+    // Session overflow menu (issue #1091) — relocated from the top bar to the
+    // composer overflow button (batch-5B B2); it anchors next to the input bar.
+    var showSessionMenu by remember { mutableStateOf(false) }
     // Shared model-manager VM so the probe sheet reuses the loaded catalog.
     val modelManagerViewModel: ModelManagerViewModel = viewModel { ModelManagerViewModel() }
     val modelManagerUiState by modelManagerViewModel.uiState.collectAsStateWithLifecycle()
@@ -380,6 +384,15 @@ fun ChatScreen(
     val showScrollToBottom by remember(timelineState.isHistorical, displayedMessages) {
         derivedStateOf {
             !timelineState.isHistorical && scrollController.showFab(displayedMessages.isNotEmpty())
+        }
+    }
+
+    // Up-state of the direction-aware FAB (batch-5B B5): reader at the bottom
+    // with history above → offer a jump to the top of the conversation.
+    val showScrollToTop by remember(timelineState.isHistorical, displayedMessages) {
+        derivedStateOf {
+            !timelineState.isHistorical && displayedMessages.isNotEmpty() &&
+                scrollController.isFollowingBottom && listState.canScrollBackward
         }
     }
     val inputState = rememberTextFieldState()
@@ -581,95 +594,34 @@ fun ChatScreen(
             }
         },
         actions = {
-            IconButton(onClick = { viewModel.createNewSession() }) {
+            // Temporary Chat Mode (batch-5B B3): mints a session whose row is
+            // deleted the moment the user leaves it. Toggling OFF lands on a
+            // fresh normal session.
+            IconButton(
+                onClick = viewModel::toggleTemporaryChat,
+                modifier = Modifier.testTag("temp_chat_button"),
+            ) {
                 Icon(
-                    imageVector = Icons.Filled.Add,
-                    contentDescription = stringResource(R.string.content_desc_new_chat),
+                    imageVector = Icons.Outlined.AutoDelete,
+                    contentDescription = stringResource(R.string.chat_temp_chat_desc),
+                    tint =
+                        if (state.isTemporaryChat) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
                 )
             }
 
-            // Session actions overflow menu (issue #1091)
-            var showSessionMenu by remember { mutableStateOf(false) }
-            Box {
-                IconButton(
-                    onClick = {
-                        settingsViewModel.refreshKeepConnectedInBackground()
-                        showSessionMenu = true
-                    },
-                    modifier = Modifier.testTag("chat_session_menu_button"),
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.MoreVert,
-                        contentDescription = stringResource(R.string.session_integrations_menu_item),
-                    )
-                }
-                DropdownMenu(
-                    expanded = showSessionMenu,
-                    onDismissRequest = { showSessionMenu = false },
-                ) {
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.chat_action_timeline)) },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Filled.History,
-                                contentDescription = null,
-                            )
-                        },
-                        enabled = state.currentSessionId != null,
-                        onClick = {
-                            showSessionMenu = false
-                            viewModel.openTimeline()
-                        },
-                        modifier = Modifier.testTag("chat_menu_timeline"),
-                    )
-
-                    // Chat search lives in this overflow menu (moved from the top bar)
-                    DropdownMenuItem(
-                        text = {
-                            Text(
-                                stringResource(
-                                    if (searchState.isActive) {
-                                        R.string.chat_action_close_search
-                                    } else {
-                                        R.string.chat_action_search
-                                    },
-                                ),
-                            )
-                        },
-                        leadingIcon = {
-                            Icon(
-                                imageVector =
-                                    if (searchState.isActive) Icons.Filled.Close else Icons.Filled.Search,
-                                contentDescription = null,
-                            )
-                        },
-                        onClick = {
-                            showSessionMenu = false
-                            viewModel.toggleSearch()
-                        },
-                        enabled = !timelineState.isHistorical,
-                        modifier = Modifier.testTag("chat_menu_search"),
-                    )
-
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.session_integrations_menu_item)) },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Filled.Extension,
-                                contentDescription = null,
-                            )
-                        },
-                        onClick = {
-                            showSessionMenu = false
-                            connectorsViewModel.show()
-                        },
-                        modifier = Modifier.testTag("chat_menu_session_integrations"),
-                    )
-                    ChatBackgroundConnectionMenuItem(
-                        checked = settingsState.keepConnectedInBackground,
-                        onToggle = settingsViewModel::onKeepConnectedInBackgroundChange,
-                    )
-                }
+            // Connection profiles — same navigation mechanism as the drawer.
+            IconButton(
+                onClick = { NavigationController.navigateTo(ProfilesScreen) },
+                modifier = Modifier.testTag("profiles_button"),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.SwitchAccount,
+                    contentDescription = stringResource(R.string.screen_profiles),
+                )
             }
         },
     ) { _ ->
@@ -874,12 +826,15 @@ fun ChatScreen(
                     )
                 }
 
-                // Scroll-to-bottom FAB (issue #682): shows while follow is
-                // paused and renders the unseen-message badge.
+                // Direction-aware scroll FAB (issue #682, batch-5B B5): down +
+                // unseen-count badge while follow is paused; up (jump to top)
+                // while pinned at the bottom with history above.
                 ChatScrollToBottomFab(
-                    show = showScrollToBottom,
+                    show = showScrollToBottom || showScrollToTop,
                     pendingCount = scrollController.pendingCount,
                     onScrollToBottom = scrollController::resumeFollowing,
+                    scrollsUp = !showScrollToBottom && showScrollToTop,
+                    onScrollToTop = scrollController::jumpToTop,
                 )
 
                 // Reaction heartsanimation (purely cosmetic — fades out
@@ -1016,6 +971,10 @@ fun ChatScreen(
                 onModelTap = { viewModel.openModelPicker() },
                 onSessionsTap = { sessionsSheetSection = HistorySection.CONVERSATIONS },
                 onNewChatTap = { NavigationController.openNewChat() },
+                onOverflowTap = {
+                    settingsViewModel.refreshKeepConnectedInBackground()
+                    showSessionMenu = true
+                },
                 onModelManagerTap = { showModelManagerSheet = true },
                 onMediaModelsTap = { showMediaModelsSheet = true },
                 onSessionsLongPress = { sessionsSheetSection = HistorySection.AUTOMATIONS },
@@ -1029,6 +988,79 @@ fun ChatScreen(
                 isFastModeChanging = state.isFastModeChanging,
                 onToggleFastMode = { viewModel.toggleFastMode() },
             )
+
+            // Session actions overflow menu (issue #1091) — relocated from the
+            // top bar into the composer's overflow button (batch-5B B2). The
+            // sibling Box right under the input bar is the popup's anchor.
+            Box {
+                DropdownMenu(
+                    expanded = showSessionMenu,
+                    onDismissRequest = { showSessionMenu = false },
+                ) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.chat_action_timeline)) },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Filled.History,
+                                contentDescription = null,
+                            )
+                        },
+                        enabled = state.currentSessionId != null,
+                        onClick = {
+                            showSessionMenu = false
+                            viewModel.openTimeline()
+                        },
+                        modifier = Modifier.testTag("chat_menu_timeline"),
+                    )
+
+                    // Chat search lives in this overflow menu (moved from the top bar)
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                stringResource(
+                                    if (searchState.isActive) {
+                                        R.string.chat_action_close_search
+                                    } else {
+                                        R.string.chat_action_search
+                                    },
+                                ),
+                            )
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector =
+                                    if (searchState.isActive) Icons.Filled.Close else Icons.Filled.Search,
+                                contentDescription = null,
+                            )
+                        },
+                        onClick = {
+                            showSessionMenu = false
+                            viewModel.toggleSearch()
+                        },
+                        enabled = !timelineState.isHistorical,
+                        modifier = Modifier.testTag("chat_menu_search"),
+                    )
+
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.session_integrations_menu_item)) },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Filled.Extension,
+                                contentDescription = null,
+                            )
+                        },
+                        onClick = {
+                            showSessionMenu = false
+                            connectorsViewModel.show()
+                        },
+                        modifier = Modifier.testTag("chat_menu_session_integrations"),
+                    )
+                    ChatBackgroundConnectionMenuItem(
+                        checked = settingsState.keepConnectedInBackground,
+                        onToggle = settingsViewModel::onKeepConnectedInBackgroundChange,
+                    )
+                }
+            }
         }
 
         ChatTimelineSheet(

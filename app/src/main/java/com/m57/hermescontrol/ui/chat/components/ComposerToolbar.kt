@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.outlined.AddComment
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Mic
+import androidx.compose.material.icons.outlined.MoreHoriz
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -80,11 +81,15 @@ import kotlinx.coroutines.withTimeoutOrNull
 /**
  * Bottom controls row for the chat composer, rendered inside the composer card.
  *
- * Layout: [+ attach] [model · reasoning pill ──free space──] [mic] [action]
+ * Layout: [+ attach] [model · reasoning pill ──free space──] [⋯ overflow]
+ * [new chat] [model manager] [sessions] [mic] [action]
  *
  * All controls are flat and borderless; hierarchy comes from fill brightness.
- * The pill shows the model and the reasoning level side by side — tapping the
+ * The pill shows the model (leaf name only — the provider namespace stays in
+ * the model picker/manager) and the reasoning level side by side — tapping the
  * model half opens the model picker, tapping the level half opens the level menu.
+ * The overflow button opens the session menu moved down from the top bar
+ * (timeline / search / integrations / background connection).
  *
  * The trailing action button morphs: while a send is possible it sends,
  * otherwise it carries the mic action. The flat mic button only appears next
@@ -110,6 +115,7 @@ fun ComposerToolbar(
     onMicTap: () -> Unit,
     onSessionsTap: () -> Unit = {},
     onNewChatTap: () -> Unit = {},
+    onOverflowTap: () -> Unit = {},
     onModelManagerTap: () -> Unit = {},
     onMediaModelsTap: () -> Unit = {},
     onSessionsLongPress: () -> Unit = {},
@@ -242,9 +248,13 @@ fun ComposerToolbar(
         // Model + reasoning pill — wraps its content inside the free space,
         // pushing the mic/action buttons to the far end
         val modelScrollState = rememberScrollState()
+        // Leaf-name-only label: the provider namespace ("openrouter/openai/")
+        // made the pill too long, so the pill always shows the final segment
+        // regardless of the showModelProvider setting; the full id stays
+        // visible in the model picker/manager.
         val modelLabel =
             currentSessionModel?.let { model ->
-                composerModelLabel(model, showProvider = showModelProvider)
+                composerModelLabel(model, showProvider = false)
             } ?: "Model"
         LaunchedEffect(modelLabel) {
             modelScrollState.scrollTo(0)
@@ -524,12 +534,30 @@ fun ComposerToolbar(
             }
         }
 
-        // Model manager button — opens the provider/model catalog sheet with
-        // capability toggles and probe. Sits left of the sessions button.
-        // Plain gesture-owning container like the sessions button (a Button's
+        // Overflow — opens the session menu moved down from the top bar
+        // (timeline / search / integrations / background connection). Same
+        // gesture-owning container pattern as the other custom buttons.
+        Box(
+            modifier =
+                Modifier
+                    .size(ControlSize)
+                    .clip(CircleShape)
+                    .background(palette.control)
+                    .combinedClickable(onClick = onOverflowTap)
+                    .testTag("composer_overflow_button"),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.MoreHoriz,
+                contentDescription = stringResource(R.string.chat_overflow_menu_desc),
+                tint = palette.onControl,
+            )
+        }
+
+        // New chat — the free slot right of the overflow button;
+        // highest-frequency action that used to need the drawer. Plain
+        // gesture-owning container like the sessions button (a Button's
         // internal clickable would eat the pointer events).
-        // New chat — the free slot left of the model-manager and sessions
-        // buttons; highest-frequency action that used to need the drawer.
         Box(
             modifier =
                 Modifier

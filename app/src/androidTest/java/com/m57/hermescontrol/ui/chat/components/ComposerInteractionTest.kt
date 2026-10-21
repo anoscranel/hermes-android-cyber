@@ -112,10 +112,11 @@ class ComposerInteractionTest {
                 } else {
                     // requiredWidth, not width: the CI emulator's screen is
                     // 320dp wide, so plain width() clamps to 320 and the
-                    // six-button toolbar squeezes the model chip's swipeable
-                    // viewport to ~3px — inside touch slop, so swipeLeft()
-                    // came out as a tap. 380 gives the chip a real swipe lane
-                    // while the mic button stays partly on screen.
+                    // eight-control toolbar squeezes the model chip's swipeable
+                    // viewport to touch-slop size. 420 deliberately overhangs
+                    // the screen so the chip keeps a real swipe lane; the mic
+                    // button lands completely offscreen (fine for these
+                    // assertions — its visibility is covered by other tests).
                     Box(Modifier.requiredWidth(composerWidth).testTag("composer_toolbar")) { composer() }
                 }
             }
@@ -223,8 +224,8 @@ class ComposerInteractionTest {
 
     @Test
     fun modelSideOfPill_opensModelPicker_only() {
-        // Width pinned so the six-button toolbar leaves the model chip tappable.
-        setComposer(composerWidth = 380.dp)
+        // Width pinned so the eight-control toolbar leaves the model chip tappable.
+        setComposer(composerWidth = 420.dp)
 
         composeTestRule.onNodeWithTag("model_chip").performClick()
 
@@ -253,13 +254,17 @@ class ComposerInteractionTest {
     @Test
     fun longModelName_remainsScrollableAndDoesNotTriggerPicker() {
         val longModel = "openrouter/some-extremely-long-model-name-preview-2026-with-extra-characters"
-        // 380.dp via requiredWidth (see setComposer): enough pill width that the
-        // model chip's swipe lane clears touch slop; mic stays partly on screen.
-        setComposer(model = longModel, composerWidth = 380.dp, showModelProvider = true)
+        // The pill renders the leaf segment only (batch-5B B1), regardless of
+        // the provider-display setting — so the visible text is the leaf.
+        val longLeaf = longModel.substringAfterLast('/')
+        // 420.dp via requiredWidth (see setComposer): enough pill width that the
+        // model chip's swipe lane clears touch slop; mic is fully offscreen, so
+        // it is no longer asserted here (mic visibility is covered by other
+        // tests; the overhang is deliberate).
+        setComposer(model = longModel, composerWidth = 420.dp)
 
         composeTestRule.onNodeWithTag("reasoning_chip").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("mic_button").assertIsDisplayed()
-        val modelText = composeTestRule.onNodeWithText(longModel)
+        val modelText = composeTestRule.onNodeWithText(longLeaf)
         val leftBefore = modelText.getUnclippedBoundsInRoot().left
 
         val chipInteraction = composeTestRule.onNodeWithTag("model_chip")
@@ -277,12 +282,11 @@ class ComposerInteractionTest {
         }
         check(leftAfter < leftBefore) { "model text did not move after horizontal swipe [$diag]" }
         composeTestRule.onNodeWithTag("reasoning_chip").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("mic_button").assertIsDisplayed()
     }
 
     @Test
     fun shortModelName_wideComposerKeepsPillCompact() {
-        setComposer(composerWidth = 380.dp)
+        setComposer(composerWidth = 420.dp)
 
         val toolbarBounds =
             composeTestRule
@@ -307,10 +311,15 @@ class ComposerInteractionTest {
     fun changingModel_resetsScrolledLabelToTheStart() {
         val firstModel = "openrouter/some-extremely-long-model-name-preview-2026-with-extra-characters"
         val secondModel = "anthropic/another-extremely-long-model-name-preview-2026-with-extra-characters"
-        // 380.dp: same geometry contract as the sibling swipe test.
-        setComposer(model = firstModel, modelAfterTap = secondModel, composerWidth = 380.dp, showModelProvider = true)
+        // Pill shows the leaf only (batch-5B B1), so assertions track the leafs.
+        val firstLeaf = firstModel.substringAfterLast('/')
+        val secondLeaf = secondModel.substringAfterLast('/')
+        // 420.dp: same geometry contract as the sibling swipe test — the mic is
+        // fully offscreen here (deliberate overhang; its visibility is covered
+        // by other tests), so it is no longer asserted.
+        setComposer(model = firstModel, modelAfterTap = secondModel, composerWidth = 420.dp)
 
-        val firstText = composeTestRule.onNodeWithText(firstModel)
+        val firstText = composeTestRule.onNodeWithText(firstLeaf)
         val leftBefore = firstText.getUnclippedBoundsInRoot().left
         val chipInteraction = composeTestRule.onNodeWithTag("model_chip")
         chipInteraction.performTouchInput { swipeLeft() }
@@ -327,14 +336,13 @@ class ComposerInteractionTest {
         }
 
         composeTestRule.onNodeWithTag("model_chip").performClick()
-        val secondText = composeTestRule.onNodeWithText(secondModel)
+        val secondText = composeTestRule.onNodeWithText(secondLeaf)
         val leftAfterModelChange = secondText.getUnclippedBoundsInRoot().left
 
         check(leftAfterModelChange >= leftBefore - 1.dp) {
             "new model label should reset to its initial left position"
         }
         composeTestRule.onNodeWithTag("reasoning_chip").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("mic_button").assertIsDisplayed()
         composeTestRule.runOnIdle {
             assertEquals("model selection should still invoke the picker", 1, modelTaps)
         }
@@ -419,11 +427,14 @@ class ComposerInteractionTest {
     }
 
     @Test
-    fun enabledComposer_showsProviderAndModelName() {
+    fun providerSetting_noLongerShownInPill() {
+        // Batch-5B B1: the pill renders the leaf segment regardless of the
+        // provider-display setting; "openai/gpt-5.5" stays visible only in the
+        // model picker/manager.
         setComposer(model = "openai/gpt-5.5", composerWidth = 420.dp, showModelProvider = true)
 
-        composeTestRule.onNodeWithText("openai/gpt-5.5").assertIsDisplayed()
-        composeTestRule.onNodeWithText("gpt-5.5").assertDoesNotExist()
+        composeTestRule.onNodeWithText("gpt-5.5").assertIsDisplayed()
+        composeTestRule.onNodeWithText("openai/gpt-5.5").assertDoesNotExist()
     }
 
     @Test
