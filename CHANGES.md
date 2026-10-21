@@ -7,7 +7,7 @@ are upstream.
 
 Under section 4(b) of the Apache License 2.0, this file states that the files below were modified
 in this fork. All changes were made between 2026-10-17 and 2026-10-21 (commit messages
-`batch-5A` to `batch-6`). `git log --author=anoscranel` lists every change.
+`batch-1` to `batch-6`). `git log --author=anoscranel` lists every change.
 
 Modified files:
 
