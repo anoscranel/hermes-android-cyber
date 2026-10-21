@@ -1008,7 +1008,7 @@ private fun ProviderEditDialog(
                                     slug = provider.slug,
                                     displayName = name.trim().ifEmpty { provider.slug },
                                     baseUrl = baseUrl.trim(),
-                                    apiKey = <redacted>,
+                                    apiKey = apiKey.trim(),
                                     models =
                                         modelsDraft
                                             .split(',')

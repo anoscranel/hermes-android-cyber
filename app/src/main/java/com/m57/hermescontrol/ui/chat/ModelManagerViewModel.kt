@@ -234,7 +234,10 @@ class ModelManagerViewModel : ViewModel() {
     fun displayNameOverride(
         provider: String,
         model: String,
-    ): String? = _uiState.value.overrides[key(provider, model)]?.displayName?.takeIf { it.isNotBlank() }
+    ): String? =
+        _uiState.value.overrides[key(provider, model)]
+            ?.displayName
+            ?.takeIf { it.isNotBlank() }
 
     fun addCustomModel(
         providerSlug: String,
