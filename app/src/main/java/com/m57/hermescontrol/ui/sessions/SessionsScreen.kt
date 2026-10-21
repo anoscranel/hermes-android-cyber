@@ -43,6 +43,7 @@ import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Search
@@ -457,53 +458,117 @@ fun SessionsScreen(
     }
 
     HermesScaffold(
-        title = { Text(stringResource(R.string.screen_history)) },
-        navigationIcon = onOpenDrawer?.let { NavIcon.Menu(it) },
+        // Batch-6 F4 (selection parity with the bottom sheet): while selecting,
+        // the top bar swaps to [Close | "<n> selected" | bulk actions]. Bulk ops
+        // route through the same ViewModel paths as the sheet — the backend bulk
+        // delete op, and per-id archive/unarchive via setArchivedSelected, which
+        // runs invalidate+reload itself so unarchived rows reappear in the main
+        // list.
+        title = {
+            if (state.isSelecting) {
+                Text(
+                    text = stringResource(R.string.sessions_sheet_selection_count, state.selectedIds.size),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.testTag("sessions_screen_selection_count"),
+                )
+            } else {
+                Text(stringResource(R.string.screen_history))
+            }
+        },
+        navigationIcon =
+            if (state.isSelecting) {
+                NavIcon.Close { viewModel.toggleSelecting() }
+            } else {
+                onOpenDrawer?.let { NavIcon.Menu(it) }
+            },
         isRefreshing = state.isLoading,
         onRefresh = { viewModel.loadSessions(forceRefresh = true) },
         actions = {
-            IconButton(
-                onClick = { NavigationController.openNewChat() },
-                modifier = Modifier.testTag("sessions_action_new_chat"),
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Add,
-                    contentDescription = stringResource(R.string.content_desc_new_chat),
-                )
-            }
-            IconButton(
-                onClick = { viewModel.toggleShowArchived() },
-                modifier = Modifier.testTag("sessions_action_toggle_archived"),
-            ) {
-                Icon(
-                    imageVector = if (state.showArchived) Icons.Filled.Unarchive else Icons.Filled.Archive,
-                    contentDescription =
-                        if (state.showArchived) {
-                            stringResource(R.string.sessions_hide_archived)
-                        } else {
-                            stringResource(R.string.sessions_show_archived)
-                        },
-                )
-            }
-            if (state.hasHiddenSessions) {
+            if (state.isSelecting) {
+                if (state.showArchived) {
+                    IconButton(
+                        onClick = { viewModel.setArchivedSelected(false) },
+                        enabled = hasSelection,
+                        modifier = Modifier.testTag("sessions_screen_selection_unarchive"),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Unarchive,
+                            contentDescription = stringResource(R.string.sessions_sheet_selection_unarchive),
+                        )
+                    }
+                } else {
+                    IconButton(
+                        onClick = { viewModel.setArchivedSelected(true) },
+                        enabled = hasSelection,
+                        modifier = Modifier.testTag("sessions_screen_selection_archive"),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Inventory2,
+                            contentDescription = stringResource(R.string.sessions_sheet_selection_archive),
+                        )
+                    }
+                }
                 IconButton(
-                    onClick = { viewModel.toggleShowHidden() },
-                    modifier = Modifier.testTag("sessions_action_toggle_hidden"),
+                    onClick = { viewModel.requestBulkDelete() },
+                    enabled = hasSelection,
+                    modifier = Modifier.testTag("sessions_screen_selection_delete"),
                 ) {
                     Icon(
-                        imageVector =
-                            if (state.showHidden) {
-                                Icons.Filled.VisibilityOff
+                        imageVector = Icons.Filled.Delete,
+                        contentDescription = stringResource(R.string.sessions_sheet_selection_delete),
+                        tint =
+                            if (hasSelection) {
+                                MaterialTheme.colorScheme.error
                             } else {
-                                Icons.Filled.Visibility
-                            },
-                        contentDescription =
-                            if (state.showHidden) {
-                                stringResource(R.string.sessions_hide_hidden)
-                            } else {
-                                stringResource(R.string.sessions_show_hidden)
+                                MaterialTheme.colorScheme.onSurfaceVariant
                             },
                     )
+                }
+            } else {
+                IconButton(
+                    onClick = { NavigationController.openNewChat() },
+                    modifier = Modifier.testTag("sessions_action_new_chat"),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Add,
+                        contentDescription = stringResource(R.string.content_desc_new_chat),
+                    )
+                }
+                IconButton(
+                    onClick = { viewModel.toggleShowArchived() },
+                    modifier = Modifier.testTag("sessions_action_toggle_archived"),
+                ) {
+                    Icon(
+                        imageVector = if (state.showArchived) Icons.Filled.Unarchive else Icons.Filled.Archive,
+                        contentDescription =
+                            if (state.showArchived) {
+                                stringResource(R.string.sessions_hide_archived)
+                            } else {
+                                stringResource(R.string.sessions_show_archived)
+                            },
+                    )
+                }
+                if (state.hasHiddenSessions) {
+                    IconButton(
+                        onClick = { viewModel.toggleShowHidden() },
+                        modifier = Modifier.testTag("sessions_action_toggle_hidden"),
+                    ) {
+                        Icon(
+                            imageVector =
+                                if (state.showHidden) {
+                                    Icons.Filled.VisibilityOff
+                                } else {
+                                    Icons.Filled.Visibility
+                                },
+                            contentDescription =
+                                if (state.showHidden) {
+                                    stringResource(R.string.sessions_hide_hidden)
+                                } else {
+                                    stringResource(R.string.sessions_show_hidden)
+                                },
+                        )
+                    }
                 }
             }
         },

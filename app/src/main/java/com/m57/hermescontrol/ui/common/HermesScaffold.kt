@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.DrawerState
@@ -50,6 +51,11 @@ sealed interface NavIcon {
     /** Back arrow icon. */
     data class Back(
         val onBack: () -> Unit,
+    ) : NavIcon
+
+    /** Close (cross) icon — e.g. exiting a selection mode (batch-6 F4). */
+    data class Close(
+        val onClose: () -> Unit,
     ) : NavIcon
 }
 
@@ -184,6 +190,16 @@ fun HermesScaffold(
                                     imageVector = Icons.Filled.Menu,
                                     contentDescription = stringResource(R.string.content_desc_open_drawer),
                                     modifier = Modifier.testTag("menu_button"),
+                                )
+                            }
+                        }
+
+                        is NavIcon.Close -> {
+                            IconButton(onClick = icon.onClose) {
+                                Icon(
+                                    imageVector = Icons.Filled.Close,
+                                    contentDescription = stringResource(R.string.sessions_sheet_selection_exit),
+                                    modifier = Modifier.testTag("close_button"),
                                 )
                             }
                         }

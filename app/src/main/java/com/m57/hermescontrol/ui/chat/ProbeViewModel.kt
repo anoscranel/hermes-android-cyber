@@ -10,8 +10,6 @@ import com.m57.hermescontrol.data.ws.HermesWsClient
 import com.m57.hermescontrol.data.ws.WsEvent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -100,14 +98,13 @@ class ProbeViewModel : ViewModel() {
         }
     }
 
-    /** Probe every selected model with capped concurrency (batch-5B B6):
-     * chunks of [PROBE_PARALLELISM] run in parallel so probing doesn't
-     * serialize end to end. The cap stays small on purpose — MessageComplete
-     * correlation is session-based (there is exactly one WS session), so two
-     * concurrent probes on it can cross-attribute a completion; 3 keeps that
-     * risk bounded while roughly tripling throughput. Each probe assigns the
-     * target model to scope "main" (the only assignment scope the server
-     * accepts for chat models); the original main assignment is restored in a
+    /** Probe every selected model STRICTLY SEQUENTIALLY (batch-6 F1). Batch-5B
+     * ran 3-concurrent probes — reverted: WS MessageComplete correlates by
+     * SESSION, not request-id, and every probe shares the one main session, so
+     * concurrent in-flight probes cross-attribute each other's completions
+     * (results landed on the wrong rows and probing appeared broken). Each
+     * probe also swings the GLOBAL main model assignment, another reason only
+     * one may be in flight. The original main assignment is restored in a
      * finally block, so probing never leaves the server on the last model. */
     fun runProbes(
         sessionId: String?,
@@ -123,42 +120,79 @@ class ProbeViewModel : ViewModel() {
             _uiState.update { it.copy(toastMessage = "Select at least one model") }
             return
         }
-        // Original assignment ("provider/model" label) restored in the finally
-        // below, so probing never leaves the session on the last probed model.
         val originalProvider = currentModelLabel?.substringBefore('/')
         val originalModel = currentModelLabel?.substringAfter('/', "")
         probeJob =
             viewModelScope.launch {
                 _uiState.update { it.copy(isRunning = true) }
                 try {
-                    targets.chunked(PROBE_PARALLELISM).forEach { chunk ->
-                        val deferreds =
-                            chunk.map { k ->
-                                async(Dispatchers.IO) {
-                                    val provider = k.substringBefore(':')
-                                    val model = k.substringAfter(':')
-                                    probeOne(sessionId, provider, model)
-                                }
-                            }
-                        deferreds.awaitAll()
+                    targets.forEach { k ->
+                        val provider = k.substringBefore(':')
+                        val model = k.substringAfter(':')
+                        probeOne(sessionId, provider, model)
                     }
                 } finally {
-                    if (!originalProvider.isNullOrBlank() && !originalModel.isNullOrBlank()) {
-                        withContext(Dispatchers.IO) {
-                            safeApiCall {
-                                ApiClient.hermesApi.setModelAssignment(
-                                    ModelAssignmentRequest(
-                                        scope = "main",
-                                        provider = originalProvider,
-                                        model = originalModel,
-                                    ),
-                                )
-                            }
-                        }
-                    }
+                    restoreMainAssignment(originalProvider, originalModel)
                     _uiState.update { it.copy(isRunning = false) }
                 }
             }
+    }
+
+    /**
+     * Single on-demand probe for the add-provider dialog's per-row Test button
+     * (batch-6 P3). The sequential contract above makes one-in-flight the only
+     * honored case: while a run is active the tap is refused (isRunning guard).
+     * The original main assignment is restored in finally — a row test never
+     * leaves the session on the probed model.
+     */
+    fun probeSingle(
+        sessionId: String?,
+        currentModelLabel: String?,
+        provider: String,
+        model: String,
+    ) {
+        if (_uiState.value.isRunning) return
+        if (sessionId == null) {
+            _uiState.update { it.copy(toastMessage = "Open a chat session to probe models") }
+            return
+        }
+        val k = key(provider, model)
+        _uiState.update { state ->
+            state.copy(
+                results = state.results + (k to (state.results[k] ?: ProbeResult(provider, model))),
+            )
+        }
+        val originalProvider = currentModelLabel?.substringBefore('/')
+        val originalModel = currentModelLabel?.substringAfter('/', "")
+        probeJob =
+            viewModelScope.launch {
+                _uiState.update { it.copy(isRunning = true) }
+                try {
+                    probeOne(sessionId, provider, model)
+                } finally {
+                    restoreMainAssignment(originalProvider, originalModel)
+                    _uiState.update { it.copy(isRunning = false) }
+                }
+            }
+    }
+
+    /** Put the caller's pre-probe main assignment back (see [runProbes]). */
+    private suspend fun restoreMainAssignment(
+        originalProvider: String?,
+        originalModel: String?,
+    ) {
+        if (originalProvider.isNullOrBlank() || originalModel.isNullOrBlank()) return
+        withContext(Dispatchers.IO) {
+            safeApiCall {
+                ApiClient.hermesApi.setModelAssignment(
+                    ModelAssignmentRequest(
+                        scope = "main",
+                        provider = originalProvider,
+                        model = originalModel,
+                    ),
+                )
+            }
+        }
     }
 
     fun cancel() {
@@ -298,8 +332,5 @@ class ProbeViewModel : ViewModel() {
     companion object {
         private const val PROBE_PROMPT = "Reply with exactly: ok"
         private const val PROBE_TIMEOUT_MS = 45_000L
-
-        /** Safe upper bound for concurrent in-flight probes on the one WS session. */
-        private const val PROBE_PARALLELISM = 3
     }
 }

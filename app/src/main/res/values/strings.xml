@@ -1601,6 +1601,8 @@
     <string name="chat_open_model_manager">Manage models</string>
     <string name="chat_new_chat">New chat</string>
     <string name="chat_overflow_menu_desc">More options</string>
+    <!-- P1 (batch-6): the top-bar glyph is a chat-bubble outline, approximating
+         ChatGPT's dashed temporary-chat bubble (Material ships no dashed one). -->
     <string name="chat_temp_chat_desc">Temporary chat</string>
     <string name="model_manager_title">Model manager</string>
     <string name="model_manager_search_placeholder">Filter providers and models…</string>
@@ -1647,6 +1649,8 @@
     <string name="model_manager_probing">Probing catalog…</string>
     <string name="model_manager_probe_add_hint">Probe the catalog, then check models to add them</string>
     <string name="model_manager_probe_empty_result">The provider reported no models</string>
+    <string name="model_manager_probe_row_test">Test</string>
+    <string name="probe_row_test_ok">%1$d ms</string>
     <string name="probe_title">Probe models</string>
     <string name="probe_select_all">Select all</string>
     <string name="probe_select_none">Clear</string>

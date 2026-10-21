@@ -75,9 +75,13 @@ import com.m57.hermescontrol.data.model.ModelProvider
 import com.m57.hermescontrol.data.model.reasoningSupport
 import com.m57.hermescontrol.data.remote.NetworkResult
 import com.m57.hermescontrol.data.remote.ProviderCatalogProbe
+import com.m57.hermescontrol.theme.LocalHermesStatusColors
 import com.m57.hermescontrol.theme.LocalSpacing
 import com.m57.hermescontrol.ui.chat.CustomProviderDraft
 import com.m57.hermescontrol.ui.chat.ModelManagerViewModel
+import com.m57.hermescontrol.ui.chat.ProbeResult
+import com.m57.hermescontrol.ui.chat.ProbeStatus
+import com.m57.hermescontrol.ui.chat.ProbeViewModel
 import com.m57.hermescontrol.ui.chat.filterProviders
 import com.m57.hermescontrol.ui.common.SearchBar
 import com.m57.hermescontrol.ui.common.ToastEffect
@@ -89,9 +93,13 @@ import kotlinx.coroutines.launch
  * rename / swipe-left remove-confirm on model rows, provider headers that
  * swipe right into the full edit window and left into remove-confirm (the
  * delete icon stays as the explicit affordance), add-model and add-provider
- * flows (the catalog probe lives inside the add flow), and a bottom toolbar
- * with the probe-testing sheet entry and the Save that writes
- * model_overrides/providers to the server config.
+ * flows (the catalog probe lives inside the add flow, with a per-row Test
+ * button that fires one real probe through [ProbeViewModel.probeSingle]), and
+ * a bottom toolbar with the probe-testing sheet entry and the Save that
+ * writes model_overrides/providers to the server config. Capability toggles
+ * are write-through (batch-6 F2): they persist immediately via
+ * [ModelManagerViewModel.applyCapabilityOverride], while renames, removals
+ * and provider edits remain Save-gated.
  */
 private object ModelManagerSheetMemory {
     /** Providers the user explicitly expanded; survives sheet closes. */
@@ -103,10 +111,16 @@ private object ModelManagerSheetMemory {
 fun ModelManagerSheet(
     onDismiss: () -> Unit,
     onOpenProbe: () -> Unit,
+    runtimeSessionId: String? = null,
+    isSessionReady: Boolean = false,
+    currentModelLabel: String? = null,
     viewModel: ModelManagerViewModel = viewModel { ModelManagerViewModel() },
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val spacing = LocalSpacing.current
+    // Probe harness for the add-provider dialog's per-row Test button (batch-6
+    // P3): same activity-scoped instance ProbeSheet uses.
+    val probeViewModel: ProbeViewModel = viewModel { ProbeViewModel() }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var showAddProvider by remember { mutableStateOf(false) }
     var confirmRemove by remember { mutableStateOf<Pair<String, String>?>(null) }
@@ -140,7 +154,10 @@ fun ModelManagerSheet(
             )
             Spacer(modifier = Modifier.height(8.dp))
 
-            Box(modifier = Modifier.weight(1f)) {
+            // Batch-6 F3: Box wraps content width by default, so the center-
+            // aligned spinner rendered against the LEFT edge; fillMaxWidth
+            // makes Alignment.Center actually land in the screen's middle.
+            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 when {
                     uiState.isLoading -> {
                         CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
@@ -260,6 +277,10 @@ fun ModelManagerSheet(
                 viewModel.stageCustomProvider(draft)
                 showAddProvider = false
             },
+            runtimeSessionId = runtimeSessionId,
+            isSessionReady = isSessionReady,
+            currentModelLabel = currentModelLabel,
+            probeViewModel = probeViewModel,
         )
     }
 
@@ -611,35 +632,47 @@ private fun ModelRow(
                     modifier = Modifier.fillMaxWidth().padding(start = 22.dp, bottom = 6.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
+                    // Toggles are write-through (batch-6 F2): the tap applies
+                    // to server config immediately, no Save step.
                     CapabilityToggle(
                         label = stringResource(R.string.model_manager_cap_reasoning),
                         checked = caps?.reasoningSupport == true,
                         tag = "cap_reasoning_${provider.slug}_$model",
-                        onChange = { viewModel.setOverride(provider.slug, model) { o -> o.copy(reasoning = it) } },
+                        onChange = {
+                            viewModel.applyCapabilityOverride(provider.slug, model) { o -> o.copy(reasoning = it) }
+                        },
                     )
                     CapabilityToggle(
                         label = stringResource(R.string.model_manager_cap_tools),
                         checked = caps?.supports_tools == true,
                         tag = "cap_tools_${provider.slug}_$model",
-                        onChange = { viewModel.setOverride(provider.slug, model) { o -> o.copy(tools = it) } },
+                        onChange = {
+                            viewModel.applyCapabilityOverride(provider.slug, model) { o -> o.copy(tools = it) }
+                        },
                     )
                     CapabilityToggle(
                         label = stringResource(R.string.model_manager_cap_vision),
                         checked = caps?.supports_vision == true,
                         tag = "cap_vision_${provider.slug}_$model",
-                        onChange = { viewModel.setOverride(provider.slug, model) { o -> o.copy(vision = it) } },
+                        onChange = {
+                            viewModel.applyCapabilityOverride(provider.slug, model) { o -> o.copy(vision = it) }
+                        },
                     )
                     CapabilityToggle(
                         label = stringResource(R.string.model_manager_cap_attachments),
                         checked = viewModel.effectiveAttachments(provider.slug, model),
                         tag = "cap_attachments_${provider.slug}_$model",
-                        onChange = { viewModel.setOverride(provider.slug, model) { o -> o.copy(attachments = it) } },
+                        onChange = {
+                            viewModel.applyCapabilityOverride(provider.slug, model) { o -> o.copy(attachments = it) }
+                        },
                     )
                     CapabilityToggle(
                         label = stringResource(R.string.model_manager_cap_fast),
                         checked = caps?.fast == true,
                         tag = "cap_fast_${provider.slug}_$model",
-                        onChange = { viewModel.setOverride(provider.slug, model) { o -> o.copy(fast = it) } },
+                        onChange = {
+                            viewModel.applyCapabilityOverride(provider.slug, model) { o -> o.copy(fast = it) }
+                        },
                     )
                 }
             }
@@ -728,6 +761,10 @@ private fun AddProviderRow(onClick: () -> Unit) {
 private fun AddProviderDialog(
     onDismiss: () -> Unit,
     onConfirm: (CustomProviderDraft) -> Unit,
+    runtimeSessionId: String?,
+    isSessionReady: Boolean,
+    currentModelLabel: String?,
+    probeViewModel: ProbeViewModel,
 ) {
     var slug by rememberSaveable { mutableStateOf("") }
     var name by rememberSaveable { mutableStateOf("") }
@@ -745,6 +782,9 @@ private fun AddProviderDialog(
     var probeError by remember { mutableStateOf<String?>(null) }
     var checkedModels by remember { mutableStateOf(emptySet<String>()) }
     val probeScope = rememberCoroutineScope()
+    // Per-row Test (batch-6 P3): a single real WS probe of that provider:model
+    // through ProbeViewModel.probeSingle, result rendered inline on the row.
+    val probeUiState by probeViewModel.uiState.collectAsState()
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.model_manager_add_provider)) },
@@ -811,13 +851,19 @@ private fun AddProviderDialog(
                     )
                 }
                 if (probing) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        CircularProgressIndicator(modifier = Modifier.size(16.dp))
-                        Text(
-                            text = stringResource(R.string.model_manager_probing),
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.padding(start = 8.dp),
-                        )
+                    // Batch-6 F3: center the probing row across the dialog width.
+                    Box(
+                        modifier = Modifier.fillMaxWidth(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp))
+                            Text(
+                                text = stringResource(R.string.model_manager_probing),
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.padding(start = 8.dp),
+                            )
+                        }
                     }
                 }
                 probeError?.let { message ->
@@ -854,6 +900,18 @@ private fun AddProviderDialog(
                             } else {
                                 checkedModels + catalogId
                             }
+                    },
+                    providerSlug = slug,
+                    testResults = probeUiState.results,
+                    probesRunning = probeUiState.isRunning,
+                    testsEnabled = isSessionReady,
+                    onTest = { catalogId ->
+                        probeViewModel.probeSingle(
+                            runtimeSessionId,
+                            currentModelLabel,
+                            slug.trim(),
+                            catalogId,
+                        )
                     },
                 )
                 OutlinedTextField(
@@ -907,6 +965,11 @@ private fun CatalogChecklist(
     onKeywordChange: (String) -> Unit,
     checkedModels: Set<String>,
     onToggle: (String) -> Unit,
+    providerSlug: String,
+    testResults: Map<String, ProbeResult>,
+    probesRunning: Boolean,
+    testsEnabled: Boolean,
+    onTest: (String) -> Unit,
 ) {
     if (catalog.isEmpty()) return
     OutlinedTextField(
@@ -946,7 +1009,69 @@ private fun CatalogChecklist(
                     style = MaterialTheme.typography.bodySmall,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
                 )
+                CatalogRowTest(
+                    result = testResults["$providerSlug:$catalogId"],
+                    enabled = testsEnabled && !probesRunning && providerSlug.isNotBlank(),
+                    onTest = { onTest(catalogId) },
+                    tag = "provider_probe_test_$catalogId",
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Per-catalog-row probe test (batch-6 P3): tap runs ONE real probe of that
+ * provider:model through the shared probe harness. The row shows a spinner
+ * while running, a green latency when ok, and red on failure — same status
+ * vocabulary as the probe sheet.
+ */
+@Composable
+private fun CatalogRowTest(
+    result: ProbeResult?,
+    enabled: Boolean,
+    onTest: () -> Unit,
+    tag: String,
+) {
+    val statusColors = LocalHermesStatusColors.current
+    when (result?.status) {
+        ProbeStatus.RUNNING -> {
+            CircularProgressIndicator(
+                modifier = Modifier.size(14.dp).testTag(tag),
+                strokeWidth = 2.dp,
+            )
+        }
+
+        else -> {
+            Column(horizontalAlignment = Alignment.End) {
+                TextButton(
+                    onClick = onTest,
+                    enabled = enabled,
+                    modifier = Modifier.testTag(tag),
+                ) {
+                    Text(stringResource(R.string.model_manager_probe_row_test))
+                }
+                if (result?.status == ProbeStatus.OK) {
+                    val latency = result?.latencyMs
+                    Text(
+                        text =
+                            if (latency != null) {
+                                stringResource(R.string.probe_row_test_ok, latency)
+                            } else {
+                                stringResource(R.string.probe_status_ok)
+                            },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = statusColors.success,
+                    )
+                } else if (result?.status == ProbeStatus.FAILED) {
+                    Text(
+                        text = stringResource(R.string.probe_status_failed),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = statusColors.error,
+                    )
+                }
             }
         }
     }

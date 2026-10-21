@@ -38,6 +38,9 @@ import kotlinx.coroutines.yield
  * 7. **Serialized scroll commands** — every scroll (send, FAB, session switch,
  *    search navigation, auto-follow) is launched from [scope] so animations
  *    don't compete.
+ * 8. **Reverse-jump FAB feed** — [observeScrollDirection] records the reader's
+ *    last in-progress scroll direction so the FAB can offer the reverse jump
+ *    (batch-6 F6).
  *
  * Construct with [rememberChatScrollController].
  */
@@ -54,6 +57,17 @@ class ChatScrollController(
      * scroll-to-bottom FAB; cleared when the reader resumes following.
      */
     var pendingCount by mutableStateOf(0)
+        private set
+
+    /**
+     * The direction of the reader's LAST in-progress scroll movement, tracked
+     * from first-visible index/offset deltas (list index 0 = oldest message at
+     * the top). The FAB offers the REVERSE jump (batch-6 F6): heading toward
+     * the newest messages (index growing) → FAB shows an up-arrow and jumps to
+     * the TOP; diving into history (index shrinking, away from the bottom) →
+     * FAB shows a down-arrow and jumps to BOTTOM.
+     */
+    var lastScrollTowardBottom by mutableStateOf(true)
         private set
 
     private var lastTailKey: Any? = null
@@ -88,6 +102,36 @@ class ChatScrollController(
                         pendingCount = 0
                     }
                     previouslyAtBottom = atBottom
+                }
+        }
+    }
+
+    /**
+     * Track the reader's last scroll direction for the reverse-jump FAB
+     * (batch-6 F6). Only deltas observed WHILE a scroll is in progress count:
+     * history prepends re-index rows without the user moving, and instant
+     * programmatic jumps (follow, search) leave isScrollInProgress false when
+     * the snapshot lands — neither is user motion.
+     */
+    fun observeScrollDirection() {
+        scope.launch {
+            var lastIndex = listState.firstVisibleItemIndex
+            var lastOffset = listState.firstVisibleItemScrollOffset
+            snapshotFlow {
+                listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
+            }.distinctUntilChanged()
+                .collect { (index, offset) ->
+                    if (listState.isScrollInProgress) {
+                        val movedDown = index > lastIndex || (index == lastIndex && offset > lastOffset)
+                        val movedUp = index < lastIndex || (index == lastIndex && offset < lastOffset)
+                        if (movedDown) {
+                            lastScrollTowardBottom = true
+                        } else if (movedUp) {
+                            lastScrollTowardBottom = false
+                        }
+                    }
+                    lastIndex = index
+                    lastOffset = offset
                 }
         }
     }

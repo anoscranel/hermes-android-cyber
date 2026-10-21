@@ -239,6 +239,65 @@ class ModelManagerViewModel : ViewModel() {
             ?.displayName
             ?.takeIf { it.isNotBlank() }
 
+    /**
+     * Capability toggles write through immediately (batch-6 F2): the override
+     * is staged for the optimistic UI AND persisted at once via the same
+     * `model_overrides.<provider>.<model>` updateConfig path [save] uses —
+     * there is no Save gate on the toggle path. The staged override stays
+     * staged after a successful write so the row keeps showing override-first
+     * values until the next server catalog re-pull; on failure the stage is
+     * rolled back and the error surfaced. Other staged features (custom
+     * models, renames, provider edits) remain Save-gated.
+     */
+    fun applyCapabilityOverride(
+        provider: String,
+        model: String,
+        transform: (CapabilityOverride) -> CapabilityOverride,
+    ) {
+        val k = key(provider, model)
+        val previous = _uiState.value.overrides[k]
+        setOverride(provider, model, transform)
+        val staged = _uiState.value.overrides[k] ?: return
+        viewModelScope.launch {
+            val modelOverridesJson =
+                buildJsonObject {
+                    put(
+                        provider,
+                        buildJsonObject { put(model, overrideToJson(staged)) },
+                    )
+                }
+            val body =
+                ConfigUpdateRequest(config = mapOf("model_overrides" to modelOverridesJson))
+            when (val result = safeApiCall { ApiClient.hermesApi.updateConfig(body) }) {
+                is NetworkResult.Success -> {
+                    _uiState.update {
+                        it.copy(toastMessage = "Capability saved for $model")
+                    }
+                }
+
+                is NetworkResult.Failure -> {
+                    _uiState.update { state ->
+                        if (state.overrides[k] == staged) {
+                            state.copy(
+                                overrides =
+                                    if (previous == null) {
+                                        state.overrides - k
+                                    } else {
+                                        state.overrides + (k to previous)
+                                    },
+                                errorMessage = result.error.message,
+                            )
+                        } else {
+                            // A newer tap owns the staged value now; that tap's
+                            // own write will succeed or roll back.
+                            state.copy(errorMessage = result.error.message)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     fun addCustomModel(
         providerSlug: String,
         modelName: String,
@@ -282,6 +341,19 @@ class ModelManagerViewModel : ViewModel() {
         providerSlug: String,
         modelName: String,
     ): Boolean = key(providerSlug, modelName) in _uiState.value.hiddenModels
+
+    /** The `model_overrides.<provider>.<model>` JSON for ONE staged override —
+     * shared by [save] (bulk write) and [applyCapabilityOverride] (write-through),
+     * so both paths emit the documented schema exactly the same way. */
+    private fun overrideToJson(override: CapabilityOverride) =
+        buildJsonObject {
+            override.fast?.let { put("fast", JsonPrimitive(it)) }
+            override.reasoning?.let { put("supports_reasoning", JsonPrimitive(it)) }
+            override.tools?.let { put("supports_tools", JsonPrimitive(it)) }
+            override.vision?.let { put("supports_vision", JsonPrimitive(it)) }
+            override.attachments?.let { put("supports_vision", JsonPrimitive(it)) }
+            override.displayName?.takeIf(String::isNotBlank)?.let { put("display_name", JsonPrimitive(it)) }
+        }
 
     /**
      * Stage an add or an edit of a provider (both flows persist through this
@@ -376,16 +448,7 @@ class ModelManagerViewModel : ViewModel() {
             state.overrides.forEach { (k, override) ->
                 val provider = k.substringBefore(':')
                 val model = k.substringAfter(':')
-                val modelJson =
-                    buildJsonObject {
-                        override.fast?.let { put("fast", JsonPrimitive(it)) }
-                        override.reasoning?.let { put("supports_reasoning", JsonPrimitive(it)) }
-                        override.tools?.let { put("supports_tools", JsonPrimitive(it)) }
-                        override.vision?.let { put("supports_vision", JsonPrimitive(it)) }
-                        override.attachments?.let { put("supports_vision", JsonPrimitive(it)) }
-                        override.displayName?.takeIf(String::isNotBlank)?.let { put("display_name", JsonPrimitive(it)) }
-                    }
-                overridesByProvider.getOrPut(provider) { mutableMapOf() }[model] = modelJson
+                overridesByProvider.getOrPut(provider) { mutableMapOf() }[model] = overrideToJson(override)
             }
             state.hiddenModels.forEach { k ->
                 val provider = k.substringBefore(':')

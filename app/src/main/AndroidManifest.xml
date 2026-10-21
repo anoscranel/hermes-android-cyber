@@ -75,6 +75,12 @@
             android:name=".notification.StopKeepConnectedReceiver"
             android:exported="false" />
 
+        <!-- Batch-6 F5: the authority rides the applicationId placeholder on
+             purpose. Debug builds append the ".dev" applicationIdSuffix, so the
+             installed package differs from the release package; the Kotlin side
+             matches with packageName at runtime. NEVER hardcode the release
+             package here — the camera capture path throws the moment the photo
+             is confirmed when the two sides disagree. -->
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

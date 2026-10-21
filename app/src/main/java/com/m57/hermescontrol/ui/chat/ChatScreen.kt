@@ -32,12 +32,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.input.clearText
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.outlined.AutoDelete
-import androidx.compose.material.icons.outlined.SwitchAccount
+import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
@@ -345,6 +345,9 @@ fun ChatScreen(
     // Continuous bottom-follow tracking from LazyListState (issue #682).
     LaunchedEffect(Unit) {
         scrollController.observeUserScrollPosition()
+        // Reverse-jump FAB feed (batch-6 F6): the reader's last scroll
+        // direction decides which end-jump the FAB offers.
+        scrollController.observeScrollDirection()
     }
 
     // Drive follow + unseen tracking from a stable tail-content key covering
@@ -381,18 +384,21 @@ fun ChatScreen(
             scrollController.jumpToHistoryStart()
         }
     }
-    val showScrollToBottom by remember(timelineState.isHistorical, displayedMessages) {
+    // Scroll FAB = reverse of the reader's last scroll move (batch-6 F6):
+    // ROLLING toward the newest messages → up-arrow, tap jumps to the TOP;
+    // ROLLING into history (away from the bottom) → down-arrow, tap jumps to
+    // BOTTOM. Shown only while the offered jump would actually move the list
+    // (up: not at the top; down: not at the bottom / follow paused).
+    val fabScrollsUp by remember { derivedStateOf { scrollController.lastScrollTowardBottom } }
+    val showScrollFab by remember(timelineState.isHistorical, displayedMessages) {
         derivedStateOf {
-            !timelineState.isHistorical && scrollController.showFab(displayedMessages.isNotEmpty())
-        }
-    }
-
-    // Up-state of the direction-aware FAB (batch-5B B5): reader at the bottom
-    // with history above → offer a jump to the top of the conversation.
-    val showScrollToTop by remember(timelineState.isHistorical, displayedMessages) {
-        derivedStateOf {
-            !timelineState.isHistorical && displayedMessages.isNotEmpty() &&
-                scrollController.isFollowingBottom && listState.canScrollBackward
+            if (timelineState.isHistorical || displayedMessages.isEmpty()) {
+                false
+            } else if (scrollController.lastScrollTowardBottom) {
+                listState.canScrollBackward
+            } else {
+                scrollController.showFab(displayedMessages.isNotEmpty())
+            }
         }
     }
     val inputState = rememberTextFieldState()
@@ -596,13 +602,15 @@ fun ChatScreen(
         actions = {
             // Temporary Chat Mode (batch-5B B3): mints a session whose row is
             // deleted the moment the user leaves it. Toggling OFF lands on a
-            // fresh normal session.
+            // fresh normal session. Glyph (batch-6 P1): ChatGPT-style bubble —
+            // Material ships no dashed bubble, so ChatBubbleOutline is the
+            // closest semantic glyph; the tint still marks the active state.
             IconButton(
                 onClick = viewModel::toggleTemporaryChat,
                 modifier = Modifier.testTag("temp_chat_button"),
             ) {
                 Icon(
-                    imageVector = Icons.Outlined.AutoDelete,
+                    imageVector = Icons.Outlined.ChatBubbleOutline,
                     contentDescription = stringResource(R.string.chat_temp_chat_desc),
                     tint =
                         if (state.isTemporaryChat) {
@@ -613,13 +621,14 @@ fun ChatScreen(
                 )
             }
 
-            // Connection profiles — same navigation mechanism as the drawer.
+            // Connection profiles — same navigation mechanism as the drawer,
+            // and the drawer's own profile icon (batch-6 P1).
             IconButton(
                 onClick = { NavigationController.navigateTo(ProfilesScreen) },
                 modifier = Modifier.testTag("profiles_button"),
             ) {
                 Icon(
-                    imageVector = Icons.Outlined.SwitchAccount,
+                    imageVector = Icons.Filled.AccountCircle,
                     contentDescription = stringResource(R.string.screen_profiles),
                 )
             }
@@ -826,14 +835,17 @@ fun ChatScreen(
                     )
                 }
 
-                // Direction-aware scroll FAB (issue #682, batch-5B B5): down +
-                // unseen-count badge while follow is paused; up (jump to top)
-                // while pinned at the bottom with history above.
+                // Scroll FAB (issue #682, batch-6 F6): shows the reverse jump
+                // of the reader's last scroll direction — the unseen-count
+                // badge belongs to the down state only. BottomStart stays: the
+                // message-list Box owns the whole width above the composer and
+                // nothing docks in its bottom-left corner, while BottomEnd
+                // would sit against the send/stop column's vertical lane.
                 ChatScrollToBottomFab(
-                    show = showScrollToBottom || showScrollToTop,
+                    show = showScrollFab,
                     pendingCount = scrollController.pendingCount,
                     onScrollToBottom = scrollController::resumeFollowing,
-                    scrollsUp = !showScrollToBottom && showScrollToTop,
+                    scrollsUp = fabScrollsUp,
                     onScrollToTop = scrollController::jumpToTop,
                 )
 
@@ -1176,6 +1188,9 @@ fun ChatScreen(
                     showModelManagerSheet = false
                     showProbeSheet = true
                 },
+                runtimeSessionId = viewModel.activeRuntimeSessionId(),
+                isSessionReady = state.isSessionReady,
+                currentModelLabel = state.currentSessionModel,
                 viewModel = modelManagerViewModel,
             )
         }

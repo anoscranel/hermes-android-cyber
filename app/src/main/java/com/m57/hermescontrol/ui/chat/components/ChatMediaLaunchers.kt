@@ -213,7 +213,10 @@ fun rememberChatMediaLaunchers(
             currentOnAddAttachments(attachments)
         }
 
-    // Camera photo launcher (issue #195)
+    // Camera photo launcher (issue #195). Batch-6 F5 hardening: the confirm
+    // ("OK") result path must never throw out of this callback — any failure
+    // (lost staged URI after process death behind the camera app, unreadable
+    // capture, resolver errors) degrades to the camera-error toast, not a crash.
     val cameraLauncher =
         rememberLauncherForActivityResult(
             ActivityResultContracts.TakePicture(),
@@ -232,10 +235,16 @@ fun rememberChatMediaLaunchers(
                     val inputStream = context.contentResolver.openInputStream(uri)
                     val size = inputStream?.use { it.available().toLong() } ?: 0L
                     currentOnAddAttachment(uri.toString(), fileName, "image/jpeg", size)
-                } catch (e: Exception) {
-                    Log.e("ChatScreen", "Camera capture failed", e)
+                } catch (t: Throwable) {
+                    Log.e("ChatScreen", "Camera capture failed", t)
                     currentOnShowMessage(cameraErrorMsg)
                 }
+            } else if (success) {
+                // Process death while the camera app owned the screen: the
+                // contract reports success but our staged URI is gone. Fail
+                // visibly instead of silently dropping the capture.
+                Log.w("ChatScreen", "Camera confirmed but capture URI was lost")
+                currentOnShowMessage(cameraErrorMsg)
             }
         }
 
@@ -350,6 +359,13 @@ fun rememberChatMediaLaunchers(
                 SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
             val photoFile =
                 File.createTempFile("camera_${timeStamp}_", ".jpg", context.cacheDir)
+            // Batch-6 F5: the FileProvider authority MUST track the applicationId
+            // at runtime — debug builds carry the ".dev" applicationIdSuffix, so
+            // a hardcoded release-package authority mismatches the manifest's
+            // applicationId placeholder and getUriForFile throws
+            // (IllegalArgumentException, "Couldn't find meta-data for provider").
+            // Keep BOTH sides runtime-derived: packageName here, the placeholder
+            // in AndroidManifest.xml — never the literal release package.
             val uri =
                 FileProvider.getUriForFile(
                     context,

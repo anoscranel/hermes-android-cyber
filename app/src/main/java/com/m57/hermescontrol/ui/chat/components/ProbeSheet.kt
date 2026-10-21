@@ -16,6 +16,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ExpandLess
+import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Stop
 import androidx.compose.material3.Checkbox
@@ -50,10 +52,18 @@ import com.m57.hermescontrol.ui.chat.ProbeStatus
 import com.m57.hermescontrol.ui.chat.ProbeViewModel
 import com.m57.hermescontrol.ui.common.SearchBar
 
+/** Providers the user explicitly expanded; survives sheet closes. */
+private object ProbeSheetMemory {
+    var expandedProviders: Set<String> = emptySet()
+}
+
 /**
  * Probe-testing sheet: select models from the loaded catalog, then fire a
  * short real completion at each (session-scoped assignment) and report a
  * status dot, time-to-first-token, total latency, and tokens/sec per model.
+ * Models are grouped under collapsible provider headers (batch-6 P2) — the
+ * same chevron pattern ModelManagerSheet uses: collapsed by default, tap the
+ * header to expand, the choice is remembered across sheet closes.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -74,6 +84,10 @@ fun ProbeSheet(
     }
 
     var query by remember { mutableStateOf("") }
+    // Collapse state copies the model-manager pattern: providers start
+    // COLLAPSED (only an explicit tap opens one) and the choice survives
+    // sheet closes within the app session.
+    var expandedProviders by remember { mutableStateOf(ProbeSheetMemory.expandedProviders) }
     val filteredCatalog =
         remember(catalog, query) {
             val terms =
@@ -136,16 +150,59 @@ fun ProbeSheet(
             HorizontalDivider()
 
             LazyColumn(modifier = Modifier.weight(1f).testTag("probe_list")) {
-                items(filteredCatalog, key = { "${it.first}:${it.second}" }) { (provider, model) ->
-                    val k = "$provider:$model"
-                    ProbeRow(
-                        provider = provider,
-                        model = model,
-                        result = uiState.results[k],
-                        selected = k in uiState.selected,
-                        enabled = !uiState.isRunning,
-                        onToggle = { viewModel.toggleSelect(provider, model) },
-                    )
+                val groupedCatalog =
+                    filteredCatalog.groupBy({ (provider, _) -> provider }, { (_, model) -> model })
+                groupedCatalog.forEach { (provider, providerModels) ->
+                    val collapsed = provider !in expandedProviders
+                    item(key = "provider_header_$provider") {
+                        Row(
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .testTag("probe_provider_toggle_$provider")
+                                    .clickable {
+                                        expandedProviders =
+                                            if (collapsed) {
+                                                expandedProviders + provider
+                                            } else {
+                                                expandedProviders - provider
+                                            }
+                                        ProbeSheetMemory.expandedProviders = expandedProviders
+                                    },
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                imageVector =
+                                    if (collapsed) {
+                                        Icons.Outlined.ExpandMore
+                                    } else {
+                                        Icons.Outlined.ExpandLess
+                                    },
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Text(
+                                text = provider,
+                                style = MaterialTheme.typography.titleSmall,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(start = 4.dp),
+                            )
+                        }
+                    }
+                    if (!collapsed) {
+                        items(providerModels, key = { "$provider:$it" }) { model ->
+                            val k = "$provider:$model"
+                            ProbeRow(
+                                provider = provider,
+                                model = model,
+                                result = uiState.results[k],
+                                selected = k in uiState.selected,
+                                enabled = !uiState.isRunning,
+                                onToggle = { viewModel.toggleSelect(provider, model) },
+                            )
+                        }
+                    }
                 }
             }
 
