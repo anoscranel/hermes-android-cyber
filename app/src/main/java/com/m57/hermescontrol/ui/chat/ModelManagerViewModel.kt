@@ -38,11 +38,22 @@ data class CapabilityOverride(
     val tools: Boolean? = null,
     val vision: Boolean? = null,
     val attachments: Boolean? = null,
+    /** Staged display name from the model-row rename (swipe-right). Written as
+     * `model_overrides.<provider>.<model>.display_name` on Save; null falls the
+     * row back to the catalog id. */
+    val displayName: String? = null,
 )
 
 /** A custom provider staged in the add-provider sheet, written to
  * `providers.<name>` on Save (schema: api/name/api_key|key_env/transport/
- * models/discover_models per providers.md "Named Custom Providers"). */
+ * models/discover_models per providers.md "Named Custom Providers").
+ *
+ * The provider editor (batch 5A) stages through the SAME map: it may leave
+ * [baseUrl] blank to keep the server's current endpoint — [save] then skips
+ * the api/transport keys and writes only the fields the user filled in.
+ * [enabled]=false maps to the documented `providers.<name>.enabled` disable
+ * key; [discoverModels] null keeps the key out of the payload (edits), true
+ * reproduces the add flow's historical write. */
 data class CustomProviderDraft(
     val slug: String,
     val displayName: String,
@@ -50,7 +61,8 @@ data class CustomProviderDraft(
     val apiKey: String = "",
     val transport: String = "chat_completions",
     val models: List<String> = emptyList(),
-    val discoverModels: Boolean = true,
+    val discoverModels: Boolean? = null,
+    val enabled: Boolean = true,
 )
 
 data class ModelManagerUiState(
@@ -218,6 +230,12 @@ class ModelManagerViewModel : ViewModel() {
         }
     }
 
+    /** Staged display-name override for a model row; null = show the catalog id. */
+    fun displayNameOverride(
+        provider: String,
+        model: String,
+    ): String? = _uiState.value.overrides[key(provider, model)]?.displayName?.takeIf { it.isNotBlank() }
+
     fun addCustomModel(
         providerSlug: String,
         modelName: String,
@@ -262,8 +280,13 @@ class ModelManagerViewModel : ViewModel() {
         modelName: String,
     ): Boolean = key(providerSlug, modelName) in _uiState.value.hiddenModels
 
+    /**
+     * Stage an add or an edit of a provider (both flows persist through this
+     * one map). A blank [CustomProviderDraft.baseUrl] means "keep the server
+     * endpoint" (edit path); the add dialog enforces a URL before confirm.
+     */
     fun stageCustomProvider(draft: CustomProviderDraft) {
-        if (draft.slug.isBlank() || draft.baseUrl.isBlank()) return
+        if (draft.slug.isBlank()) return
         _uiState.update {
             it.copy(
                 customProviders = it.customProviders + (draft.slug to draft),
@@ -357,6 +380,7 @@ class ModelManagerViewModel : ViewModel() {
                         override.tools?.let { put("supports_tools", JsonPrimitive(it)) }
                         override.vision?.let { put("supports_vision", JsonPrimitive(it)) }
                         override.attachments?.let { put("supports_vision", JsonPrimitive(it)) }
+                        override.displayName?.takeIf(String::isNotBlank)?.let { put("display_name", JsonPrimitive(it)) }
                     }
                 overridesByProvider.getOrPut(provider) { mutableMapOf() }[model] = modelJson
             }
@@ -391,13 +415,20 @@ class ModelManagerViewModel : ViewModel() {
                         put(
                             slug,
                             buildJsonObject {
-                                put("api", JsonPrimitive(draft.baseUrl))
+                                // Editor-saved drafts keep the current endpoint by
+                                // leaving baseUrl blank; only UI-filled keys go out.
+                                if (draft.baseUrl.isNotBlank()) {
+                                    put("api", JsonPrimitive(draft.baseUrl))
+                                    put("transport", JsonPrimitive(draft.transport))
+                                }
                                 put("name", JsonPrimitive(draft.displayName))
                                 if (draft.apiKey.isNotBlank()) {
                                     put("api_key", JsonPrimitive(draft.apiKey))
                                 }
-                                put("transport", JsonPrimitive(draft.transport))
-                                put("discover_models", JsonPrimitive(draft.discoverModels))
+                                draft.discoverModels?.let { put("discover_models", JsonPrimitive(it)) }
+                                if (!draft.enabled) {
+                                    put("enabled", JsonPrimitive(false))
+                                }
                                 if (draft.models.isNotEmpty()) {
                                     put(
                                         "models",

@@ -15,18 +15,24 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.ExpandLess
 import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Science
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
@@ -36,6 +42,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Switch
@@ -49,32 +56,42 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.m57.hermescontrol.R
 import com.m57.hermescontrol.data.model.ModelProvider
 import com.m57.hermescontrol.data.model.reasoningSupport
+import com.m57.hermescontrol.data.remote.NetworkResult
+import com.m57.hermescontrol.data.remote.ProviderCatalogProbe
 import com.m57.hermescontrol.theme.LocalSpacing
 import com.m57.hermescontrol.ui.chat.CustomProviderDraft
 import com.m57.hermescontrol.ui.chat.ModelManagerViewModel
 import com.m57.hermescontrol.ui.chat.filterProviders
 import com.m57.hermescontrol.ui.common.SearchBar
 import com.m57.hermescontrol.ui.common.ToastEffect
+import kotlinx.coroutines.launch
 
 /**
  * Model manager (text models): per-provider catalog with keyword filter,
- * expandable rows exposing capability toggles, swipe-right rename / swipe-left
- * remove with confirm, add-model and add-provider flows (the catalog probe
- * lives inside the add flows only), and a bottom toolbar with the probe-testing
- * sheet entry and the Save that writes model_overrides/providers to the server
- * config.
+ * expandable rows exposing capability toggles (and set-as-main), swipe-right
+ * rename / swipe-left remove-confirm on model rows, provider headers that
+ * swipe right into the full edit window and left into remove-confirm (the
+ * delete icon stays as the explicit affordance), add-model and add-provider
+ * flows (the catalog probe lives inside the add flow), and a bottom toolbar
+ * with the probe-testing sheet entry and the Save that writes
+ * model_overrides/providers to the server config.
  */
 private object ModelManagerSheetMemory {
     /** Providers the user explicitly expanded; survives sheet closes. */
@@ -94,6 +111,7 @@ fun ModelManagerSheet(
     var showAddProvider by remember { mutableStateOf(false) }
     var confirmRemove by remember { mutableStateOf<Pair<String, String>?>(null) }
     var confirmRemoveProvider by remember { mutableStateOf<String?>(null) }
+    var editProvider by remember { mutableStateOf<ModelProvider?>(null) }
     // Expanded set — providers start COLLAPSED by default (theta: only an
     // explicit tap opens one) and the choice survives sheet closes within the
     // app session (theta: an expanded provider stays expanded next open).
@@ -163,6 +181,7 @@ fun ModelManagerSheet(
                                         },
                                         onAddModel = { viewModel.addCustomModel(provider.slug, it) },
                                         onProbeProvider = { viewModel.probeCatalog() },
+                                        onEditProvider = { editProvider = provider },
                                         onRemoveProvider = { confirmRemoveProvider = provider.slug },
                                     )
                                 }
@@ -244,6 +263,17 @@ fun ModelManagerSheet(
         )
     }
 
+    editProvider?.let { provider ->
+        ProviderEditDialog(
+            provider = provider,
+            onDismiss = { editProvider = null },
+            onSave = { draft ->
+                viewModel.stageCustomProvider(draft)
+                editProvider = null
+            },
+        )
+    }
+
     confirmRemove?.let { (slug, model) ->
         AlertDialog(
             onDismissRequest = { confirmRemove = null },
@@ -297,6 +327,13 @@ fun ModelManagerSheet(
     ToastEffect(toastMessage = uiState.toastMessage, onClearToast = viewModel::toastShown)
 }
 
+/**
+ * Provider header row: tap = collapse toggle, swipe right = open the full
+ * provider edit window, swipe left = remove (the same confirm popup the
+ * delete icon raises — the icon stays as the explicit affordance, per spec).
+ * Swipe handling copies the model-row pattern exactly (incl. the deprecated
+ * confirmValueChange, accepted as a warning across the house sheets).
+ */
 @Composable
 private fun ProviderHeader(
     provider: ModelProvider,
@@ -304,59 +341,117 @@ private fun ProviderHeader(
     onToggleCollapse: () -> Unit,
     onAddModel: (String) -> Unit,
     onProbeProvider: () -> Unit,
+    onEditProvider: () -> Unit,
     onRemoveProvider: () -> Unit,
 ) {
     val spacing = LocalSpacing.current
     var adding by remember { mutableStateOf(false) }
     var draft by rememberSaveable { mutableStateOf("") }
+    val dismissState =
+        rememberSwipeToDismissBoxState(
+            confirmValueChange = { value ->
+                when (value) {
+                    SwipeToDismissBoxValue.StartToEnd -> {
+                        onEditProvider()
+                        false
+                    }
+
+                    SwipeToDismissBoxValue.EndToStart -> {
+                        onRemoveProvider()
+                        false
+                    }
+
+                    SwipeToDismissBoxValue.Settled -> {
+                        true
+                    }
+                }
+            },
+        )
     Column(modifier = Modifier.fillMaxWidth().padding(top = spacing.sm)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        SwipeToDismissBox(
+            state = dismissState,
+            modifier = Modifier.testTag("model_provider_swipe_${provider.slug}"),
+            backgroundContent = {
+                val direction = dismissState.dismissDirection
+                val (alignment, icon, tint) =
+                    when (direction) {
+                        SwipeToDismissBoxValue.StartToEnd -> {
+                            Triple(Alignment.CenterStart, Icons.Outlined.Edit, MaterialTheme.colorScheme.primary)
+                        }
+
+                        SwipeToDismissBoxValue.EndToStart -> {
+                            Triple(Alignment.CenterEnd, Icons.Outlined.Delete, MaterialTheme.colorScheme.error)
+                        }
+
+                        SwipeToDismissBoxValue.Settled -> {
+                            Triple(Alignment.Center, Icons.Outlined.Edit, MaterialTheme.colorScheme.surface)
+                        }
+                    }
+                Box(
+                    modifier =
+                        Modifier
+                            .fillMaxSize()
+                            .background(tint.copy(alpha = 0.15f))
+                            .padding(horizontal = spacing.md),
+                    contentAlignment = alignment,
+                ) {
+                    if (direction != SwipeToDismissBoxValue.Settled) {
+                        Icon(imageVector = icon, contentDescription = null, tint = tint)
+                    }
+                }
+            },
+        ) {
             Row(
-                modifier =
-                    Modifier
-                        .weight(1f)
-                        .clickable(onClick = onToggleCollapse)
-                        .testTag("model_provider_toggle_${provider.slug}"),
                 verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.background(MaterialTheme.colorScheme.surface),
             ) {
-                Icon(
-                    imageVector = if (collapsed) Icons.Outlined.ExpandMore else Icons.Outlined.ExpandLess,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                )
-                Text(
-                    text = provider.name ?: provider.slug,
-                    style = MaterialTheme.typography.titleSmall,
-                    modifier = Modifier.padding(start = 4.dp),
-                )
-            }
-            if (provider.authenticated == false) {
-                Text(
-                    text = stringResource(R.string.model_manager_unauthenticated),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.error,
-                )
-            }
-            IconButton(
-                onClick = { adding = !adding },
-                modifier = Modifier.size(32.dp).testTag("model_add_toggle_${provider.slug}"),
-            ) {
-                Icon(
-                    imageVector = if (adding) Icons.Outlined.Close else Icons.Outlined.Add,
-                    contentDescription = stringResource(R.string.model_manager_add_model),
-                    modifier = Modifier.size(18.dp),
-                )
-            }
-            IconButton(
-                onClick = onRemoveProvider,
-                modifier = Modifier.size(32.dp).testTag("model_provider_remove_${provider.slug}"),
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.Delete,
-                    contentDescription = stringResource(R.string.model_manager_remove_provider_title),
-                    tint = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.size(16.dp),
-                )
+                Row(
+                    modifier =
+                        Modifier
+                            .weight(1f)
+                            .clickable(onClick = onToggleCollapse)
+                            .testTag("model_provider_toggle_${provider.slug}"),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        imageVector = if (collapsed) Icons.Outlined.ExpandMore else Icons.Outlined.ExpandLess,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Text(
+                        text = provider.name ?: provider.slug,
+                        style = MaterialTheme.typography.titleSmall,
+                        modifier = Modifier.padding(start = 4.dp),
+                    )
+                }
+                if (provider.authenticated == false) {
+                    Text(
+                        text = stringResource(R.string.model_manager_unauthenticated),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+                IconButton(
+                    onClick = { adding = !adding },
+                    modifier = Modifier.size(32.dp).testTag("model_add_toggle_${provider.slug}"),
+                ) {
+                    Icon(
+                        imageVector = if (adding) Icons.Outlined.Close else Icons.Outlined.Add,
+                        contentDescription = stringResource(R.string.model_manager_add_model),
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+                IconButton(
+                    onClick = onRemoveProvider,
+                    modifier = Modifier.size(32.dp).testTag("model_provider_remove_${provider.slug}"),
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Delete,
+                        contentDescription = stringResource(R.string.model_manager_remove_provider_title),
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
             }
         }
         if (adding) {
@@ -401,17 +496,20 @@ private fun ModelRow(
 ) {
     val spacing = LocalSpacing.current
     var expanded by rememberSaveable(model) { mutableStateOf(false) }
+    var showRename by rememberSaveable(model) { mutableStateOf(false) }
+    val displayName = viewModel.displayNameOverride(provider.slug, model)
     val caps = viewModel.effectiveCapabilities(provider.slug, model)
-    // Swipe gestures mirror the sessions sheet: right = set as main model
-    // (models have no rename flow — set-as-main is the per-model action),
-    // left = remove with the confirmation popup. The row never actually
-    // dismisses; the popup flows own both actions.
+    // Swipe gestures mirror the sessions sheet: right = rename (display-name
+    // override store), left = remove with the confirmation popup. Set-as-main
+    // lives in the expanded capability block now (theta's rename ask took the
+    // gesture). The row never actually dismisses; the popup flows own both
+    // actions.
     val dismissState =
         rememberSwipeToDismissBoxState(
             confirmValueChange = { value ->
                 when (value) {
                     SwipeToDismissBoxValue.StartToEnd -> {
-                        viewModel.setAsMain(provider.slug, model)
+                        showRename = true
                         false
                     }
 
@@ -434,7 +532,7 @@ private fun ModelRow(
             val (alignment, icon, tint) =
                 when (direction) {
                     SwipeToDismissBoxValue.StartToEnd -> {
-                        Triple(Alignment.CenterStart, Icons.Outlined.Check, MaterialTheme.colorScheme.primary)
+                        Triple(Alignment.CenterStart, Icons.Outlined.Edit, MaterialTheme.colorScheme.primary)
                     }
 
                     SwipeToDismissBoxValue.EndToStart -> {
@@ -442,7 +540,7 @@ private fun ModelRow(
                     }
 
                     SwipeToDismissBoxValue.Settled -> {
-                        Triple(Alignment.Center, Icons.Outlined.Check, MaterialTheme.colorScheme.surface)
+                        Triple(Alignment.Center, Icons.Outlined.Edit, MaterialTheme.colorScheme.surface)
                     }
                 }
             Box(
@@ -475,7 +573,7 @@ private fun ModelRow(
                     modifier = Modifier.size(18.dp),
                 )
                 Text(
-                    text = model,
+                    text = displayName ?: model,
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.weight(1f).padding(start = 4.dp),
                     maxLines = 1,
@@ -490,6 +588,22 @@ private fun ModelRow(
                 }
             }
             if (expanded) {
+                // Set-as-main moved here from the right-swipe gesture when
+                // rename took it over (batch 5A).
+                TextButton(
+                    onClick = { viewModel.setAsMain(provider.slug, model) },
+                    modifier = Modifier.padding(start = 10.dp).testTag("model_set_main_${provider.slug}_$model"),
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Check,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Text(
+                        text = stringResource(R.string.model_manager_set_main),
+                        modifier = Modifier.padding(start = 6.dp),
+                    )
+                }
                 // Horizontal toggles (v1 layout): compact label+switch chips
                 // that wrap under the row instead of one full-width row per
                 // capability.
@@ -531,6 +645,46 @@ private fun ModelRow(
             }
             Spacer(modifier = Modifier.height(2.dp))
         }
+    }
+
+    if (showRename) {
+        // Reset the draft every time the dialog opens (key on showRename),
+        // starting from the staged display name when there is one.
+        var renameDraft by rememberSaveable(showRename) { mutableStateOf(displayName ?: model) }
+        AlertDialog(
+            onDismissRequest = { showRename = false },
+            title = { Text(stringResource(R.string.model_manager_rename_model_title)) },
+            text = {
+                OutlinedTextField(
+                    value = renameDraft,
+                    onValueChange = { renameDraft = it },
+                    singleLine = true,
+                    label = { Text(stringResource(R.string.model_manager_rename_model_hint)) },
+                    modifier = Modifier.testTag("model_rename_field_${provider.slug}_$model"),
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        // Blank or unchanged input clears the override: the row
+                        // falls back to the catalog id on the next render.
+                        val staged = renameDraft.trim()
+                        viewModel.setOverride(provider.slug, model) { o ->
+                            o.copy(displayName = if (staged.isEmpty() || staged == model) null else staged)
+                        }
+                        showRename = false
+                    },
+                    modifier = Modifier.testTag("model_rename_confirm_${provider.slug}_$model"),
+                ) {
+                    Text(stringResource(R.string.sessions_action_rename))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRename = false }) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+            },
+        )
     }
 }
 
@@ -580,11 +734,22 @@ private fun AddProviderDialog(
     var baseUrl by rememberSaveable { mutableStateOf("") }
     var apiKey by rememberSaveable { mutableStateOf("") }
     var models by rememberSaveable { mutableStateOf("") }
+    // Live catalog probe (batch 5A): hits {baseUrl}/models through the app's
+    // HTTP client (see ProviderCatalogProbe — the WS probe harness in
+    // ProbeSheet/ProbeViewModel is session-bound and cannot generalize to a
+    // not-yet-configured provider). Keyword filters as you type; checked rows
+    // merge into the models list on confirm, alongside text-typed ones.
+    var probeKeyword by rememberSaveable { mutableStateOf("") }
+    var probing by remember { mutableStateOf(false) }
+    var probedCatalog by remember { mutableStateOf<List<String>?>(null) }
+    var probeError by remember { mutableStateOf<String?>(null) }
+    var checkedModels by remember { mutableStateOf(emptySet<String>()) }
+    val probeScope = rememberCoroutineScope()
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.model_manager_add_provider)) },
         text = {
-            Column {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 OutlinedTextField(
                     value = slug,
                     onValueChange = { slug = it },
@@ -613,24 +778,104 @@ private fun AddProviderDialog(
                     singleLine = true,
                     modifier = Modifier.testTag("provider_field_api_key"),
                 )
+                TextButton(
+                    onClick = {
+                        probeScope.launch {
+                            probing = true
+                            probeError = null
+                            when (val result = ProviderCatalogProbe.fetchModels(baseUrl, apiKey)) {
+                                is NetworkResult.Success -> {
+                                    probedCatalog = result.data
+                                    checkedModels = emptySet()
+                                }
+
+                                is NetworkResult.Failure -> {
+                                    probedCatalog = emptyList()
+                                    probeError = result.error.message
+                                }
+                            }
+                            probing = false
+                        }
+                    },
+                    enabled = baseUrl.isNotBlank() && !probing,
+                    modifier = Modifier.testTag("provider_probe_catalog"),
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Science,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Text(
+                        text = stringResource(R.string.model_manager_probe_catalog),
+                        modifier = Modifier.padding(start = 6.dp),
+                    )
+                }
+                if (probing) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp))
+                        Text(
+                            text = stringResource(R.string.model_manager_probing),
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(start = 8.dp),
+                        )
+                    }
+                }
+                probeError?.let { message ->
+                    Text(
+                        text = message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+                val catalog = probedCatalog
+                if (!probing && catalog == null && probeError == null) {
+                    Text(
+                        text = stringResource(R.string.model_manager_probe_add_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (!probing && catalog != null && catalog.isEmpty() && probeError == null) {
+                    Text(
+                        text = stringResource(R.string.model_manager_probe_empty_result),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                CatalogChecklist(
+                    catalog = catalog ?: emptyList(),
+                    probeKeyword = probeKeyword,
+                    onKeywordChange = { probeKeyword = it },
+                    checkedModels = checkedModels,
+                    onToggle = { catalogId ->
+                        checkedModels =
+                            if (catalogId in checkedModels) {
+                                checkedModels - catalogId
+                            } else {
+                                checkedModels + catalogId
+                            }
+                    },
+                )
                 OutlinedTextField(
                     value = models,
                     onValueChange = { models = it },
                     label = { Text(stringResource(R.string.model_manager_provider_models)) },
-                    modifier = Modifier.testTag("provider_field_models"),
+                    modifier = Modifier.fillMaxWidth().testTag("provider_field_models"),
                 )
             }
         },
         confirmButton = {
             Button(
                 onClick = {
+                    val manualModels = models.split(',').map { it.trim() }.filter { it.isNotEmpty() }
                     onConfirm(
                         CustomProviderDraft(
                             slug = slug.trim(),
                             displayName = name.trim().ifEmpty { slug.trim() },
                             baseUrl = baseUrl.trim(),
                             apiKey = apiKey.trim(),
-                            models = models.split(',').map { it.trim() }.filter { it.isNotEmpty() },
+                            models = (manualModels + checkedModels).distinct(),
+                            discoverModels = true,
                         ),
                     )
                 },
@@ -646,4 +891,198 @@ private fun AddProviderDialog(
             }
         },
     )
+}
+
+/**
+ * The probed catalog list inside the add-provider dialog: a keyword filter box
+ * (case-insensitive contains over the catalog id) and one checkbox row per
+ * model. Checked rows merge into the provider's model list on confirm, on top
+ * of whatever was typed by hand. Empty (or unprobed) catalogs render nothing —
+ * the dialog owns the loading/error/hint rows around this.
+ */
+@Composable
+private fun CatalogChecklist(
+    catalog: List<String>,
+    probeKeyword: String,
+    onKeywordChange: (String) -> Unit,
+    checkedModels: Set<String>,
+    onToggle: (String) -> Unit,
+) {
+    if (catalog.isEmpty()) return
+    OutlinedTextField(
+        value = probeKeyword,
+        onValueChange = onKeywordChange,
+        label = { Text(stringResource(R.string.model_manager_probe_filter)) },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth().testTag("provider_probe_filter"),
+    )
+    val visibleCatalog =
+        catalog.filter {
+            probeKeyword.isBlank() || it.contains(probeKeyword.trim(), ignoreCase = true)
+        }
+    if (visibleCatalog.isEmpty()) {
+        Text(
+            text = stringResource(R.string.model_manager_empty),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    } else {
+        visibleCatalog.forEach { catalogId ->
+            val isChecked = catalogId in checkedModels
+            Row(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable { onToggle(catalogId) },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Checkbox(
+                    checked = isChecked,
+                    onCheckedChange = { onToggle(catalogId) },
+                    modifier = Modifier.testTag("provider_probe_check_$catalogId"),
+                )
+                Text(
+                    text = catalogId,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Full provider edit window (batch 5A, provider-header right-swipe): a
+ * full-screen dialog — not a bottom sheet — editing the provider config. Save
+ * stages through [ModelManagerViewModel.stageCustomProvider] (the single
+ * `providers.<name>` write path, NOT a second persistence fork); a blank base URL
+ * keeps the server's current endpoint, a blank API key keeps the stored
+ * secret, and the enabled switch maps to the documented
+ * `providers.<name>.enabled` key.
+ */
+@Composable
+private fun ProviderEditDialog(
+    provider: ModelProvider,
+    onDismiss: () -> Unit,
+    onSave: (CustomProviderDraft) -> Unit,
+) {
+    val spacing = LocalSpacing.current
+    var name by rememberSaveable(provider.slug) { mutableStateOf(provider.name) }
+    var baseUrl by rememberSaveable(provider.slug) { mutableStateOf("") }
+    var apiKey by rememberSaveable(provider.slug) { mutableStateOf("") }
+    var modelsDraft by rememberSaveable(provider.slug) { mutableStateOf(provider.models.orEmpty().joinToString(", ")) }
+    var enabled by rememberSaveable(provider.slug) { mutableStateOf(true) }
+    var revealKey by remember(provider.slug) { mutableStateOf(false) }
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.surface,
+        ) {
+            Column(modifier = Modifier.fillMaxSize().padding(horizontal = spacing.md)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = spacing.sm),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.testTag("provider_edit_close"),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Close,
+                            contentDescription = stringResource(R.string.action_cancel),
+                        )
+                    }
+                    Text(
+                        text = stringResource(R.string.model_manager_edit_provider),
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.weight(1f).padding(start = 4.dp),
+                    )
+                    TextButton(
+                        onClick = {
+                            onSave(
+                                CustomProviderDraft(
+                                    slug = provider.slug,
+                                    displayName = name.trim().ifEmpty { provider.slug },
+                                    baseUrl = baseUrl.trim(),
+                                    apiKey = <redacted>,
+                                    models =
+                                        modelsDraft
+                                            .split(',')
+                                            .map { it.trim() }
+                                            .filter { it.isNotEmpty() },
+                                    enabled = enabled,
+                                ),
+                            )
+                        },
+                        modifier = Modifier.testTag("provider_edit_save"),
+                    ) {
+                        Text(stringResource(R.string.action_save))
+                    }
+                }
+                Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
+                    OutlinedTextField(
+                        value = name,
+                        onValueChange = { name = it },
+                        label = { Text(stringResource(R.string.model_manager_provider_name)) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().testTag("provider_edit_name"),
+                    )
+                    OutlinedTextField(
+                        value = baseUrl,
+                        onValueChange = { baseUrl = it },
+                        label = { Text(stringResource(R.string.model_manager_provider_base_url)) },
+                        supportingText = { Text(stringResource(R.string.model_manager_provider_base_url_keep)) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().testTag("provider_edit_base_url"),
+                    )
+                    OutlinedTextField(
+                        value = apiKey,
+                        onValueChange = { apiKey = it },
+                        label = { Text(stringResource(R.string.model_manager_provider_api_key_keep)) },
+                        singleLine = true,
+                        visualTransformation =
+                            if (revealKey) VisualTransformation.None else PasswordVisualTransformation(),
+                        trailingIcon = {
+                            IconButton(
+                                onClick = { revealKey = !revealKey },
+                                modifier = Modifier.testTag("provider_edit_api_key_reveal"),
+                            ) {
+                                Icon(
+                                    imageVector =
+                                        if (revealKey) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                                    contentDescription = null,
+                                )
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth().testTag("provider_edit_api_key"),
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = spacing.sm),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = stringResource(R.string.model_manager_provider_enabled),
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Switch(
+                            checked = enabled,
+                            onCheckedChange = { enabled = it },
+                            modifier = Modifier.testTag("provider_edit_enabled"),
+                        )
+                    }
+                    OutlinedTextField(
+                        value = modelsDraft,
+                        onValueChange = { modelsDraft = it },
+                        label = { Text(stringResource(R.string.model_manager_provider_models)) },
+                        modifier = Modifier.fillMaxWidth().testTag("provider_edit_models"),
+                    )
+                }
+            }
+        }
+    }
 }

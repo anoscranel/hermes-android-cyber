@@ -977,21 +977,95 @@ class SessionsViewModel(
         }
     }
 
-    /** Switch between the active list and the archived-only list. */
+    /**
+     * Switch between the active list and the archived-only list. Selection is
+     * dropped with the rows — the ids a bulk action could target no longer
+     * exist in the new view.
+     */
     fun toggleShowArchived() {
-        _uiState.update { it.copy(showArchived = !it.showArchived, sessions = emptyList(), selectedIds = emptySet()) }
+        _uiState.update {
+            it.copy(
+                showArchived = !it.showArchived,
+                sessions = emptyList(),
+                selectedIds = emptySet(),
+                isSelecting = false,
+            )
+        }
         loadSessions()
     }
 
-    private fun listKey(section: HistorySection) =
-        "${section.name}:${section.source}:${section.excludeSources}:${_uiState.value.showArchived}"
+    /**
+     * Apply one explicit archived state to every selected session, using the
+     * same per-id PATCH /api/sessions/{id} ({archived}) call as the single-row
+     * toggle (the backend exposes bulk-delete only — no bulk archive op).
+     *
+     * Refresh invariant: a bulk archive-state change must finish with
+     * invalidateListCache() + loadSessions(). List caches and queries key on
+     * [SessionsUiState.archivedQuery], so both views stay consistent —
+     * unarchived sessions reappear in the main list — and selection resets
+     * to empty.
+     */
+    fun setArchivedSelected(archived: Boolean) {
+        val ids = _uiState.value.selectedIds.toList()
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            var failures = 0
+            ids.forEach { sessionId ->
+                val result =
+                    safeApiCall {
+                        ApiClient.hermesApi.setSessionArchived(
+                            sessionId = sessionId,
+                            body = SessionRenameRequest(archived = archived),
+                        )
+                    }
+                if (result is NetworkResult.Failure) failures++
+            }
+            val moved = ids.size - failures
+            _uiState.update {
+                it.copy(
+                    isSelecting = false,
+                    selectedIds = emptySet(),
+                    toastMessage =
+                        when {
+                            failures == ids.size -> {
+                                "Archive update failed"
+                            }
+
+                            failures > 0 -> {
+                                "$moved session(s) updated, $failures failed"
+                            }
+
+                            archived -> {
+                                "Archived $moved session(s)"
+                            }
+
+                            else -> {
+                                "Unarchived $moved session(s)"
+                            }
+                        },
+                )
+            }
+            invalidateListCache()
+            loadSessions()
+        }
+    }
+
+    private fun listKey(
+        section: HistorySection,
+        archived: Boolean = _uiState.value.showArchived,
+    ) = "${section.name}:${section.source}:${section.excludeSources}:$archived"
 
     private fun invalidateListCache() {
         val section = _uiState.value.section
-        val localKey = listKey(section)
         val scope = runCatching { AuthManager.currentDataScope() }.getOrNull() ?: return
-        sessionsPageCache.remove(scope.inMemoryKey(localKey))
-        SessionListCacheStore.remove(scope.persistentKey(localKey))
+        // Archive moves cross the active/archived views and list caches key on
+        // archivedQuery — dropping only the current variant would let the other
+        // view serve a stale cache-first page.
+        listOf(true, false).forEach { archived ->
+            val localKey = listKey(section, archived)
+            sessionsPageCache.remove(scope.inMemoryKey(localKey))
+            SessionListCacheStore.remove(scope.persistentKey(localKey))
+        }
     }
 
     // ── Delete (single) ──────────────────────────────────────────────────

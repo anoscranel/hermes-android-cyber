@@ -27,9 +27,11 @@ import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Unarchive
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -69,6 +71,7 @@ import com.m57.hermescontrol.NavigationController
 import com.m57.hermescontrol.R
 import com.m57.hermescontrol.data.model.SessionInfo
 import com.m57.hermescontrol.theme.LocalSpacing
+import com.m57.hermescontrol.ui.common.ConfirmDialog
 import com.m57.hermescontrol.ui.common.SearchBar
 import com.m57.hermescontrol.ui.sessions.HistorySection
 import com.m57.hermescontrol.ui.sessions.SessionsUiState
@@ -95,10 +98,15 @@ private object SessionsSheetMemory {
  * active chat in place via [NavigationController.openChatSession] instead of navigating
  * away. Owns its own [SessionsViewModel] (all-default ctor) scoped to the sheet.
  *
- * Row gestures: swipe right = rename dialog, swipe left = delete with confirmation,
- * long-press = pin/archive quick actions. Pinned sessions sort first with a divider.
- * Bottom toolbar: back-to-last, refresh, pinned-only filter, new chat, and a search
- * button that swaps the toolbar for the search field (focus + keyboard only then).
+ * Row gestures: swipe right = quick actions (rename / pin / archive), swipe left =
+ * delete with confirmation, long-press = selection mode. The archived-only toggle
+ * filters server-side via the archivedQuery-backed reload (see the ViewModel).
+ * Selection mode swaps the toolbar for a cross-exit + "<n> selected" + bulk
+ * action bar (delete via the backend bulk op; archive/unarchive per-id PATCH).
+ * Pinned sessions sort first with a divider.
+ * Bottom toolbar: back-to-last, refresh, pinned-only filter, archived-only
+ * filter, new chat, and a search button that swaps the toolbar for the search
+ * field (focus + keyboard only then).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -115,7 +123,11 @@ fun SessionsSheet(
 
     var searchVisible by remember { mutableStateOf(false) }
     var pinnedOnly by remember { mutableStateOf(false) }
-    var archivedOnly by remember { mutableStateOf(false) }
+    // Archived view is server-side (backend archived=only), so the toggle rides
+    // on the ViewModel's showArchived and triggers a reload keyed by
+    // archivedQuery — bulk unarchive from selection mode relies on the same
+    // refresh contract to pop rows back into the main list.
+    val archivedOnly = uiState.showArchived
     val searchFocusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
 
@@ -173,13 +185,19 @@ fun SessionsSheet(
                             pinnedOnly = pinnedOnly,
                             archivedOnly = archivedOnly,
                             onSessionTap = { sessionId ->
-                                // Remember the chat we are leaving so the toolbar can
-                                // offer a one-tap jump back.
-                                if (currentSessionId != null && currentSessionId != sessionId) {
-                                    SessionsSheetMemory.previousSessionId = currentSessionId
+                                // Row taps toggle while selecting; navigation only
+                                // when no selection is in progress.
+                                if (uiState.isSelecting) {
+                                    viewModel.toggleSessionSelection(sessionId)
+                                } else {
+                                    // Remember the chat we are leaving so the toolbar can
+                                    // offer a one-tap jump back.
+                                    if (currentSessionId != null && currentSessionId != sessionId) {
+                                        SessionsSheetMemory.previousSessionId = currentSessionId
+                                    }
+                                    NavigationController.openChatSession(sessionId)
+                                    onDismiss()
                                 }
-                                NavigationController.openChatSession(sessionId)
-                                onDismiss()
                             },
                             onRename = { session ->
                                 viewModel.openRenameDialog(session.id, sheetDisplayTitle(session))
@@ -187,6 +205,12 @@ fun SessionsSheet(
                             onTogglePin = { session -> viewModel.togglePin(session.id) },
                             onToggleArchive = { session -> viewModel.toggleArchive(session.id) },
                             onDelete = { session -> viewModel.requestDeleteSession(session.id) },
+                            onStartSelection = { session ->
+                                // Long-press enters selection mode with this row
+                                // checked (mirrors the Sessions screen's onSelect).
+                                viewModel.toggleSelecting()
+                                viewModel.toggleSessionSelection(session.id)
+                            },
                             onLoadMoreSearch = viewModel::loadMoreSearch,
                             modifier = Modifier.fillMaxSize(),
                         )
@@ -196,7 +220,18 @@ fun SessionsSheet(
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
-            if (searchVisible) {
+            if (uiState.isSelecting) {
+                // Selection mode replaces the toolbar wholesale (theta ask):
+                // leading cross exits, then "<n> selected", then bulk actions.
+                SessionsSheetSelectionBar(
+                    selectedCount = uiState.selectedIds.size,
+                    archivedView = archivedOnly,
+                    onExit = { viewModel.toggleSelecting() },
+                    onArchive = { viewModel.setArchivedSelected(true) },
+                    onUnarchive = { viewModel.setArchivedSelected(false) },
+                    onDelete = { viewModel.requestBulkDelete() },
+                )
+            } else if (searchVisible) {
                 SheetSearchBar(
                     query = uiState.searchQuery,
                     onQueryChange = {
@@ -227,7 +262,7 @@ fun SessionsSheet(
                     },
                     onRefresh = { viewModel.loadSessions(forceRefresh = true) },
                     onTogglePinnedOnly = { pinnedOnly = !pinnedOnly },
-                    onToggleArchivedOnly = { archivedOnly = !archivedOnly },
+                    onToggleArchivedOnly = { viewModel.toggleShowArchived() },
                     onAutomationsTap = onOpenAutomations,
                     onRenameCurrent = { session ->
                         viewModel.openRenameDialog(session.id, sheetDisplayTitle(session))
@@ -407,6 +442,84 @@ private fun SessionsSheetToolbar(
     }
 }
 
+/**
+ * Selection-mode toolbar (replaces the normal toolbar and the search bar while
+ * selecting): leading cross exits mode, then the "<n> selected" count, then the
+ * bulk actions. Bulk ops route through the same ViewModel paths as the row
+ * gestures — delete goes through the backend bulk-delete op (with the confirm
+ * dialog); archive/unarchive apply the per-id PATCH to every selected id.
+ */
+@Composable
+private fun SessionsSheetSelectionBar(
+    selectedCount: Int,
+    archivedView: Boolean,
+    onExit: () -> Unit,
+    onArchive: () -> Unit,
+    onUnarchive: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val spacing = LocalSpacing.current
+    val hasSelection = selectedCount > 0
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = spacing.sm, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(
+            onClick = onExit,
+            modifier = Modifier.testTag("sessions_sheet_selection_exit"),
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Close,
+                contentDescription = stringResource(R.string.sessions_sheet_selection_exit),
+            )
+        }
+        Text(
+            text = stringResource(R.string.sessions_sheet_selection_count, selectedCount),
+            style = MaterialTheme.typography.titleSmall,
+            modifier = Modifier.weight(1f).padding(start = 4.dp),
+        )
+        if (archivedView) {
+            IconButton(
+                onClick = onUnarchive,
+                enabled = hasSelection,
+                modifier = Modifier.testTag("sessions_sheet_selection_unarchive"),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Unarchive,
+                    contentDescription = stringResource(R.string.sessions_sheet_selection_unarchive),
+                )
+            }
+        } else {
+            IconButton(
+                onClick = onArchive,
+                enabled = hasSelection,
+                modifier = Modifier.testTag("sessions_sheet_selection_archive"),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Inventory2,
+                    contentDescription = stringResource(R.string.sessions_sheet_selection_archive),
+                )
+            }
+        }
+        IconButton(
+            onClick = onDelete,
+            enabled = hasSelection,
+            modifier = Modifier.testTag("sessions_sheet_selection_delete"),
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Delete,
+                contentDescription = stringResource(R.string.sessions_sheet_selection_delete),
+                tint =
+                    if (hasSelection) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+            )
+        }
+    }
+}
+
 /** The search field that replaces the toolbar; grabs focus + keyboard on show. */
 @Composable
 private fun SheetSearchBar(
@@ -453,6 +566,7 @@ private fun SessionsSheetList(
     onTogglePin: (SessionInfo) -> Unit,
     onToggleArchive: (SessionInfo) -> Unit,
     onDelete: (SessionInfo) -> Unit,
+    onStartSelection: (SessionInfo) -> Unit,
     onLoadMoreSearch: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -528,11 +642,14 @@ private fun SessionsSheetList(
         items(pinnedSessions, key = { it.id }) { session ->
             SessionSheetRow(
                 session = session,
+                isSelecting = uiState.isSelecting,
+                isSelected = session.id in uiState.selectedIds,
                 onClick = { onSessionTap(session.id) },
                 onRename = { onRename(session) },
                 onTogglePin = { onTogglePin(session) },
                 onToggleArchive = { onToggleArchive(session) },
                 onDelete = { onDelete(session) },
+                onStartSelection = { onStartSelection(session) },
             )
             HorizontalDivider(
                 modifier = Modifier.padding(horizontal = spacing.md),
@@ -554,11 +671,14 @@ private fun SessionsSheetList(
         items(unpinnedSessions, key = { it.id }) { session ->
             SessionSheetRow(
                 session = session,
+                isSelecting = uiState.isSelecting,
+                isSelected = session.id in uiState.selectedIds,
                 onClick = { onSessionTap(session.id) },
                 onRename = { onRename(session) },
                 onTogglePin = { onTogglePin(session) },
                 onToggleArchive = { onToggleArchive(session) },
                 onDelete = { onDelete(session) },
+                onStartSelection = { onStartSelection(session) },
             )
             HorizontalDivider(
                 modifier = Modifier.padding(horizontal = spacing.md),
@@ -583,11 +703,14 @@ private fun SessionsSheetList(
 @Composable
 private fun SessionSheetRow(
     session: SessionInfo,
+    isSelecting: Boolean,
+    isSelected: Boolean,
     onClick: () -> Unit,
     onRename: () -> Unit,
     onTogglePin: () -> Unit,
     onToggleArchive: () -> Unit,
     onDelete: () -> Unit,
+    onStartSelection: () -> Unit,
 ) {
     val spacing = LocalSpacing.current
     val title = sheetDisplayTitle(session).ifBlank { stringResource(R.string.history_untitled) }
@@ -597,7 +720,8 @@ private fun SessionSheetRow(
 
     // Swipe right opens the actions menu (rename / pin / archive), swipe left
     // asks to delete. Both snap back without removing the row — the follow-up
-    // happens via the menu or the dialogs.
+    // happens via the menu or the dialogs. Selection mode makes swipes inert:
+    // taps (and the checkbox) toggle membership, long-press does nothing more.
     val dismissState =
         rememberSwipeToDismissBoxState(
             confirmValueChange = { value ->
@@ -621,6 +745,7 @@ private fun SessionSheetRow(
 
     SwipeToDismissBox(
         state = dismissState,
+        gesturesEnabled = !isSelecting,
         modifier = Modifier.testTag("sessions_sheet_row_${session.id}"),
         backgroundContent = {
             val direction = dismissState.dismissDirection
@@ -657,9 +782,18 @@ private fun SessionSheetRow(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .combinedClickable(
+                        .background(
+                            if (isSelected) {
+                                MaterialTheme.colorScheme.surfaceVariant
+                            } else {
+                                MaterialTheme.colorScheme.surface
+                            },
+                        ).combinedClickable(
                             onClick = onClick,
-                            onLongClick = { showActions = true },
+                            // Long-press starts selection mode with this row
+                            // checked (theta ask); the quick-actions menu stays
+                            // reachable via the swipe-right gesture.
+                            onLongClick = { if (!isSelecting) onStartSelection() },
                         ).padding(horizontal = spacing.md, vertical = spacing.sm),
             ) {
                 Row(
@@ -667,6 +801,15 @@ private fun SessionSheetRow(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(spacing.sm),
                 ) {
+                    if (isSelecting) {
+                        // Same action as the row tap in selection mode (the
+                        // sheet routes tap → toggle while isSelecting).
+                        Checkbox(
+                            checked = isSelected,
+                            onCheckedChange = { onClick() },
+                            modifier = Modifier.testTag("sessions_sheet_checkbox_${session.id}"),
+                        )
+                    }
                     if (session.pinned == true) {
                         Icon(
                             imageVector = Icons.Outlined.PushPin,
@@ -751,6 +894,17 @@ private fun SessionsSheetDialogs(
     viewModel: SessionsViewModel,
     uiState: SessionsUiState,
 ) {
+    if (uiState.showBulkDeleteConfirm) {
+        ConfirmDialog(
+            title = stringResource(R.string.sessions_bulk_delete_title),
+            message = stringResource(R.string.sessions_bulk_delete_message, uiState.selectedIds.size),
+            onConfirm = { viewModel.confirmBulkDelete() },
+            onDismiss = { viewModel.cancelBulkDelete() },
+            confirmText = stringResource(R.string.action_delete),
+            isDestructive = true,
+        )
+    }
+
     val renamingId = uiState.renamingSessionId
     if (renamingId != null) {
         AlertDialog(
