@@ -221,7 +221,7 @@ fun SessionsSheet(
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
             if (uiState.isSelecting) {
-                // Selection mode replaces the toolbar wholesale (theta ask):
+                // Selection mode replaces the toolbar wholesale (by design):
                 // leading cross exits, then "<n> selected", then bulk actions.
                 SessionsSheetSelectionBar(
                     selectedCount = uiState.selectedIds.size,
@@ -791,7 +791,7 @@ private fun SessionSheetRow(
                         ).combinedClickable(
                             onClick = onClick,
                             // Long-press starts selection mode with this row
-                            // checked (theta ask); the quick-actions menu stays
+                            // checked (by design); the quick-actions menu stays
                             // reachable via the swipe-right gesture.
                             onLongClick = { if (!isSelecting) onStartSelection() },
                         ).padding(horizontal = spacing.md, vertical = spacing.sm),

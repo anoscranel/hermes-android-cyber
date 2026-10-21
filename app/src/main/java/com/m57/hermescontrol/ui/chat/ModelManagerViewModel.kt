@@ -600,7 +600,7 @@ fun filterProviders(
                 .filter { "${provider.slug}:$it" !in hiddenModels }
         // Multi-term search: every whitespace-separated term must match the
         // provider OR the model, so "openai gpt" finds openai's gpt models and
-        // "gpt openai" works identically (theta: provider+model keywords at
+        // "gpt openai" works identically (design: provider+model keywords at
         // the same time, not one or the other).
         val terms = q.split(Regex("\\s+")).filter { it.isNotBlank() }
         val providerHay = "${provider.name.lowercase()} ${provider.slug.lowercase()}"

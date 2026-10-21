@@ -126,9 +126,9 @@ fun ModelManagerSheet(
     var confirmRemove by remember { mutableStateOf<Pair<String, String>?>(null) }
     var confirmRemoveProvider by remember { mutableStateOf<String?>(null) }
     var editProvider by remember { mutableStateOf<ModelProvider?>(null) }
-    // Expanded set — providers start COLLAPSED by default (theta: only an
+    // Expanded set — providers start COLLAPSED by default (design: only an
     // explicit tap opens one) and the choice survives sheet closes within the
-    // app session (theta: an expanded provider stays expanded next open).
+    // app session (design: an expanded provider stays expanded next open).
     var expandedProviders by remember { mutableStateOf(ModelManagerSheetMemory.expandedProviders) }
 
     LaunchedEffect(Unit) {
@@ -522,7 +522,7 @@ private fun ModelRow(
     val caps = viewModel.effectiveCapabilities(provider.slug, model)
     // Swipe gestures mirror the sessions sheet: right = rename (display-name
     // override store), left = remove with the confirmation popup. Set-as-main
-    // lives in the expanded capability block now (theta's rename ask took the
+    // lives in the expanded capability block now (the rename gesture took the
     // gesture). The row never actually dismisses; the popup flows own both
     // actions.
     val dismissState =

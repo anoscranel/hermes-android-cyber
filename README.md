@@ -1,3 +1,6 @@
+> [!NOTE]
+> **Unofficial fork** of [Hy4ri/hermes-mobile](https://github.com/Hy4ri/hermes-mobile) (Apache-2.0), not affiliated with or endorsed by its authors. The badges and download links below point to the **upstream** project; this fork publishes no releases. See [CHANGES.md](CHANGES.md) for what changed here.
+
 <h1 align="center">Hermes Mobile</h1>
 <p align="center"><strong>Native Android companion app for your Hermes AI agent.</strong></p>
 

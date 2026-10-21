@@ -709,7 +709,7 @@ fun ComposerToolbar(
             modifier =
                 Modifier
                     // Pinned at ControlSize: upstream grew the button to 48.dp
-                    // while a draft exists; theta wants a constant-size action
+                    // while a draft exists; this fork keeps a constant-size action
                     // button so typing never shifts the composer layout.
                     .size(ControlSize)
                     .clip(CircleShape)

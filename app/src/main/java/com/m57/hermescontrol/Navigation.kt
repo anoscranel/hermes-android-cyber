@@ -468,7 +468,7 @@ private fun HermesDrawerContent(
         // Cross-harness search: filters the whole screen registry by label,
         // so any destination is reachable by name without scrolling sections.
         // Providers/models/sessions are not registry entries, so they are
-        // naturally out of scope (theta: everything except those).
+        // naturally out of scope (design: search covers everything except those).
         if (showSearch) {
             SearchBar(
                 query = drawerQuery,
