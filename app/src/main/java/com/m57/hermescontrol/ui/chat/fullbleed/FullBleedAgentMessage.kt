@@ -30,8 +30,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.asAndroidBitmap
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.drawscope.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
@@ -153,7 +154,16 @@ internal fun FullBleedAgentMessage(
                 .testTag("fullbleed_agent_message"),
     ) {
         // ⚠ Captured region: ONLY this inner column lands in the saved image.
-        Column(modifier = Modifier.graphicsLayer(captureLayer)) {
+        // drawWithContent+record is the BOM-safe capture recipe: the flat
+        // Modifier.graphicsLayer(layer) overload does not exist in BOM
+        // 2026.08 (verified by CI run 39807562642's compile failure).
+        Column(
+            modifier =
+                Modifier.drawWithContent {
+                    captureLayer.record { this@drawWithContent.drawContent() }
+                    drawLayer(captureLayer)
+                },
+        ) {
             if (showReasoning && message.reasoningText.isNotBlank()) {
                 ReasoningCard(
                     reasoningText = message.reasoningText,
