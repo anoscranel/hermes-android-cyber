@@ -24,40 +24,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # ─────────────────────────────────────────────────────────────────────
-  # Job -1: PR template gate — runs alongside Detect Changes; a failure skips
-  # every expensive job (lint/tests/build) but not the cheap ones.
-  # Uses the base branch's copy of the script so a PR cannot weaken its own check.
-  # The explanatory bot comment is posted by pr-template.yml.
-  # Re-running this job re-reads the current PR body (see the step below).
-  # ─────────────────────────────────────────────────────────────────────
-  pr-template:
-    name: PR Template
-    # Repo owner's PRs skip the template gate (skipped counts as pass downstream).
-    if: github.event_name == 'pull_request' && github.event.pull_request.user.login != 'Hy4ri'
-    runs-on: ubuntu-latest
-    timeout-minutes: 2
-    permissions:
-      contents: read
-      pull-requests: read
-    steps:
-      - name: Checkout trusted script (base branch)
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ github.event.pull_request.base.sha }}
-          persist-credentials: false
-          sparse-checkout: .github/scripts
-      # Validate the LIVE description, not $GITHUB_EVENT_PATH: a re-run replays the
-      # original event payload, so a fixed description could never turn this green.
-      - name: Validate PR description
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          gh api "repos/$GH_REPO/pulls/$PR_NUMBER" \
-            | jq --arg repo "$GH_REPO" '{pull_request: ., repository: {full_name: $repo}}' > "$RUNNER_TEMP/event.json"
-          python3 .github/scripts/check_pr_template.py "$RUNNER_TEMP/event.json"
 
   # ─────────────────────────────────────────────────────────────────────
   # Job 0: Detect changes — skips heavy Android build/tests for doc-only PRs
@@ -94,8 +60,8 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────
   ktlint:
     name: ktlint — Code Style
-    needs: [pr-template, changes]
-    if: ${{ !cancelled() && needs.pr-template.result != 'failure' && needs.changes.outputs.code == 'true' }}
+    needs: [changes]
+    if: ${{ !cancelled() && needs.changes.outputs.code == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -155,8 +121,8 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────
   android-lint:
     name: Android Lint — Static Analysis
-    needs: [pr-template, changes]
-    if: ${{ !cancelled() && needs.pr-template.result != 'failure' && needs.changes.outputs.code == 'true' }}
+    needs: [changes]
+    if: ${{ !cancelled() && needs.changes.outputs.code == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -194,8 +160,8 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────
   unit-tests:
     name: Unit & Integration Tests
-    needs: [pr-template, changes]
-    if: ${{ !cancelled() && needs.pr-template.result != 'failure' && needs.changes.outputs.code == 'true' }}
+    needs: [changes]
+    if: ${{ !cancelled() && needs.changes.outputs.code == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -252,8 +218,8 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────
   build:
     name: Build Debug APK
-    needs: [pr-template, changes]
-    if: ${{ !cancelled() && needs.pr-template.result != 'failure' && needs.changes.outputs.code == 'true' }}
+    needs: [changes]
+    if: ${{ !cancelled() && needs.changes.outputs.code == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -295,8 +261,8 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────
   release-compile:
     name: Release Compile Check
-    needs: [pr-template, changes]
-    if: ${{ !cancelled() && needs.pr-template.result != 'failure' && needs.changes.outputs.code == 'true' }}
+    needs: [changes]
+    if: ${{ !cancelled() && needs.changes.outputs.code == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -328,8 +294,8 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────
   instrumented-tests:
     name: Instrumented Tests
-    needs: [pr-template, changes]
-    if: ${{ !cancelled() && needs.pr-template.result != 'failure' && needs.changes.outputs.code == 'true' }}
+    needs: [changes]
+    if: ${{ !cancelled() && needs.changes.outputs.code == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -403,7 +369,7 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────
   ci-summary:
     name: CI Summary
-    needs: [pr-template, changes, ktlint, android-lint, unit-tests, build, release-compile, instrumented-tests]
+    needs: [changes, ktlint, android-lint, unit-tests, build, release-compile, instrumented-tests]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     if: always()
@@ -415,7 +381,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          TEMPLATE_RESULT: ${{ needs.pr-template.result }}
           KTLINT_RESULT: ${{ needs.ktlint.result }}
           LINT_RESULT: ${{ needs.android-lint.result }}
           TEST_RESULT: ${{ needs.unit-tests.result }}
@@ -426,7 +391,7 @@ jobs:
           LABEL="ci-red"
           FAILED=0
           FAILED_JOBS=""
-          for entry in "pr-template:$TEMPLATE_RESULT" "ktlint:$KTLINT_RESULT" "android-lint:$LINT_RESULT" "unit-tests:$TEST_RESULT" "build:$BUILD_RESULT" "release-compile:$RELEASE_COMPILE_RESULT" "instrumented-tests:$INSTRUMENTED_RESULT"; do
+          for entry in "ktlint:$KTLINT_RESULT" "android-lint:$LINT_RESULT" "unit-tests:$TEST_RESULT" "build:$BUILD_RESULT" "release-compile:$RELEASE_COMPILE_RESULT" "instrumented-tests:$INSTRUMENTED_RESULT"; do
             name="${entry%%:*}"
             result="${entry#*:}"
             echo "::notice::$name = $result"

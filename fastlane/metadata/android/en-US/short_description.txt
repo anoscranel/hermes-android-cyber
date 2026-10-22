@@ -1,1 +1,1 @@
-Remote control for your Hermes AI agent
+A robust Android UI for the Hermes agent
