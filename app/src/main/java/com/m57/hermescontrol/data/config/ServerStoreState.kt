@@ -21,6 +21,13 @@ data class ServerStoreState(
     val connectionProfiles: List<ConnectionProfile> = emptyList(),
     val selectedProfileId: String? = null,
     val pinnedModels: List<PinnedModel> = emptyList(),
+    /**
+     * Local on-device archived model list (batch-8 F2) — hidden from the model
+     * picker until the archive-view toggle reveals them. Client-side ONLY:
+     * archive keys are never written into the server's `model_overrides`
+     * config (its schema may reject unknown keys).
+     */
+    val archivedModels: List<PinnedModel> = emptyList(),
     val wsAuthParam: String = "token",
     val typingEffectEnabled: Boolean = true,
     val busySendMode: BusySendMode = BusySendMode.CORRECT,

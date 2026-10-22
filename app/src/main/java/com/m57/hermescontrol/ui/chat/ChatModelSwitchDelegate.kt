@@ -65,6 +65,8 @@ class ChatModelSwitchDelegate(
         { refresh -> ModelCatalogStore.shared.ensureLoaded(forceRefresh = refresh) },
     private val getPinnedModels: () -> List<PinnedModel> = { AuthManager.getPinnedModels() },
     private val savePinnedModels: (List<PinnedModel>) -> Unit = { AuthManager.savePinnedModels(it) },
+    private val getArchivedModels: () -> List<PinnedModel> = { AuthManager.getArchivedModels() },
+    private val saveArchivedModels: (List<PinnedModel>) -> Unit = { AuthManager.saveArchivedModels(it) },
     private val wsRequest: (suspend (params: ConfigSetParams) -> JsonElement)? = null,
 ) {
     private val pendingModelSwitchRequests = ConcurrentHashMap<String, ActiveModelSwitch>()
@@ -146,6 +148,7 @@ class ChatModelSwitchDelegate(
                 showModelPicker = true,
                 modelPickerProviders = if (hasCached) cachedModelOptions else emptyList(),
                 modelPickerPinned = getPinnedModels(),
+                modelPickerArchived = getArchivedModels(),
                 modelPickerLoading = !hasCached,
             )
         }
@@ -200,6 +203,7 @@ class ChatModelSwitchDelegate(
                             it.copy(
                                 modelPickerProviders = cachedModelOptions,
                                 modelPickerPinned = getPinnedModels(),
+                                modelPickerArchived = getArchivedModels(),
                                 modelPickerLoading = false,
                             )
                         }
@@ -240,6 +244,49 @@ class ChatModelSwitchDelegate(
         }
         savePinnedModels(currentPinned)
         uiState.update { it.copy(modelPickerPinned = currentPinned) }
+    }
+
+    /**
+     * Bulk pin/unpin from the picker's selection mode (batch-8 F2). Directional
+     * (NOT a toggle): [pinned] is the TARGET state, so re-running is idempotent.
+     * Pins persist client-side via the same local store the per-row pin uses.
+     */
+    fun setModelsPinned(
+        models: List<PinnedModel>,
+        pinned: Boolean,
+    ) {
+        val current = getPinnedModels()
+        val next =
+            if (pinned) {
+                (current + models).distinct()
+            } else {
+                current.filter { it !in models }
+            }
+        if (next != current) savePinnedModels(next)
+        uiState.update { it.copy(modelPickerPinned = next) }
+    }
+
+    /**
+     * Bulk archive/unarchive from the picker's selection mode (batch-8 F2).
+     * CLIENT-SIDE ONLY: archived keys live in the local ServerStoreState and are
+     * NEVER written into the server's `model_overrides` config — its schema may
+     * reject unknown keys. Archiving also drops the pin (an archived model must
+     * not keep occupying the pinned section while hidden).
+     */
+    fun setModelsArchived(
+        models: List<PinnedModel>,
+        archived: Boolean,
+    ) {
+        val current = getArchivedModels()
+        val next =
+            if (archived) {
+                (current + models).distinct()
+            } else {
+                current.filter { it !in models }
+            }
+        if (archived) setModelsPinned(models, false)
+        if (next != current) saveArchivedModels(next)
+        uiState.update { it.copy(modelPickerArchived = next) }
     }
 
     fun consumeOptimisticPreviousModel(): String? = optimisticPreviousModel.also { optimisticPreviousModel = null }

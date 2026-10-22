@@ -314,6 +314,7 @@
     <string name="chat_tool_format_json">Format JSON</string>
     <string name="chat_tool_compact_json">Compact JSON</string>
     <string name="content_desc_new_chat">New Chat</string>
+    <string name="content_desc_close">Close</string>
     <string name="content_desc_scroll_to_bottom">Scroll to bottom</string>
     <string name="content_desc_scroll_to_top">Scroll to top</string>
     <string name="content_desc_copy">Copy</string>
@@ -324,6 +325,40 @@
     <string name="content_desc_edit">Edit</string>
     <string name="chat_msg_tokens">%1$s tok</string>
     <string name="chat_msg_tps">%1$s t/s</string>
+
+    <!-- Batch-8 F1: per-message action bar under chat messages -->
+    <string name="chat_msg_action_image">Save as image</string>
+    <string name="chat_msg_action_fork">Fork</string>
+    <string name="chat_msg_action_edit">Edit</string>
+    <string name="chat_msg_action_tts">Read aloud</string>
+    <string name="chat_msg_action_retry">Retry</string>
+    <string name="chat_msg_action_revert">Revert</string>
+    <string name="chat_msg_copied_to_clipboard">Copied</string>
+    <string name="chat_msg_image_saved">Image saved to Pictures/Hermes</string>
+    <string name="chat_msg_image_save_failed">Could not save the image</string>
+    <string name="chat_msg_image_save_unsupported">Saving images needs Android 10 or newer</string>
+    <string name="chat_msg_retry_sent">Prompt resent</string>
+    <string name="chat_msg_retry_busy">Wait for the current reply to finish</string>
+    <string name="chat_msg_retry_no_prompt">No earlier prompt found for this reply</string>
+    <string name="chat_msg_revert_prefilled">Prompt returned to the composer; history is unchanged (the server has no per-message truncate)</string>
+    <string name="chat_msg_revert_no_prompt">No earlier prompt found to restore</string>
+    <string name="chat_msg_fork_title">Fork conversation</string>
+    <string name="chat_msg_fork_from_here">Fork from this message</string>
+    <string name="chat_msg_fork_from_here_note">Branches the whole conversation — the server has no per-message fork anchor.</string>
+    <string name="chat_msg_fork_whole">Fork entire conversation</string>
+    <string name="chat_msg_fork_name_label">Fork name (optional)</string>
+    <string name="chat_msg_fork_failed">No active session to fork</string>
+    <string name="chat_msg_edit_title">Edit message display</string>
+    <string name="chat_msg_edit_thinking_label">Thinking</string>
+    <string name="chat_msg_edit_response_label">Response</string>
+    <string name="chat_msg_edit_note">Shown on this device only; the server copy is unchanged and edits reset when the session reloads.</string>
+    <string name="chat_msg_tts_title">Read message aloud</string>
+    <string name="chat_msg_tts_play">Play</string>
+    <string name="chat_msg_tts_stop">Stop</string>
+    <string name="chat_msg_tts_mute">Mute</string>
+    <string name="chat_msg_tts_unmute">Unmute</string>
+    <string name="chat_msg_tts_speed">Speed: %1$.2f×</string>
+    <string name="chat_msg_tts_volume">Device media volume</string>
 
     <!-- Attachment / File Picker -->
     <string name="chat_attach_remove_desc">Remove attachment</string>
@@ -1738,6 +1773,16 @@
     <string name="model_picker_loading">Loading models…</string>
     <string name="model_picker_no_models">No models available.</string>
     <string name="model_picker_search">Search models and providers...</string>
+    <string name="model_picker_selection_count">%1$d selected</string>
+    <string name="model_picker_selection_exit">Exit selection</string>
+    <string name="model_picker_selection_pin">Pin</string>
+    <string name="model_picker_selection_unpin">Unpin</string>
+    <string name="model_picker_selection_archive">Archive</string>
+    <string name="model_picker_row_selected">Selected</string>
+    <string name="model_picker_selection_unarchive">Unarchive</string>
+    <string name="model_picker_show_archived">Show archived</string>
+    <string name="model_picker_hide_archived">Hide archived</string>
+    <string name="model_picker_archived_empty">No archived models.</string>
     <string name="model_reset_all_auto">Reset all to auto</string>
     <string name="model_search_placeholder">Search models...</string>
     <string name="model_set_aux">Set Aux: %1$s</string>

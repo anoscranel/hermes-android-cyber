@@ -1,11 +1,13 @@
 package com.m57.hermescontrol.ui.chat.fullbleed
 
 import android.content.ClipData
+import android.widget.Toast
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -28,8 +30,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -39,8 +45,12 @@ import com.m57.hermescontrol.ui.chat.ChatMessage
 import com.m57.hermescontrol.ui.chat.ImageViewerModel
 import com.m57.hermescontrol.ui.chat.InlineAttachment
 import com.m57.hermescontrol.ui.chat.MarkdownText
+import com.m57.hermescontrol.ui.chat.MessageBitmapExporter
+import com.m57.hermescontrol.ui.chat.MessageImageSaveResult
 import com.m57.hermescontrol.ui.chat.MessageSegment
 import com.m57.hermescontrol.ui.chat.TokenEstimator
+import com.m57.hermescontrol.ui.chat.components.ChatMessageActions
+import com.m57.hermescontrol.ui.chat.components.ChatMessageActionsRow
 import com.m57.hermescontrol.ui.chat.components.MessageReactionChips
 import com.m57.hermescontrol.ui.chat.components.ReasoningCard
 import com.m57.hermescontrol.ui.chat.components.rememberCopyFeedback
@@ -54,8 +64,17 @@ import kotlinx.coroutines.launch
  * directly on the background — no bubble container, no width cap — with a
  * trailing copy affordance. User messages keep their bubbles; this composable
  * is only used for ASSISTANT messages.
+ *
+ * Batch-8 F1: double-tap anywhere (the outer combinedClickable) copies the
+ * full text — thinking + response — with a toast; [messageActions] adds the
+ * per-message action row below the footer. Save-as-image captures ONLY the
+ * reasoning + prose column via a recorded graphics layer (the action row
+ * and the copy/stat footer are excluded on purpose). CAVEAT: in turns whose
+ * reasoning was hoisted to the turn header (issue #866 reason-above-tools),
+ * this bubble renders with `showReasoning = false` and the captured image
+ * contains the response only.
  */
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 @Composable
 internal fun FullBleedAgentMessage(
     message: ChatMessage,
@@ -77,69 +96,114 @@ internal fun FullBleedAgentMessage(
     showAssistantMessageTokens: Boolean = true,
     showTokensPerSecond: Boolean = true,
     modifier: Modifier = Modifier,
+    messageActions: ChatMessageActions? = null,
 ) {
     val textColor = MaterialTheme.colorScheme.onSurface
     val clipboard = LocalClipboard.current
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     // Copy feedback: briefly show ✓ then revert
     var copied by rememberCopyFeedback()
+    // Batch-8 F1: records the reasoning+prose column for Save-as-image.
+    val captureLayer = rememberGraphicsLayer()
+    val copiedToast = stringResource(R.string.chat_msg_copied_to_clipboard)
+
+    // Full-text copy: thinking (if any) + response, used by double-tap.
+    val copyFullText = {
+        val fullText =
+            if (message.reasoningText.isBlank()) {
+                message.content
+            } else {
+                "Thinking:\n${message.reasoningText}\n\n${message.content}"
+            }
+        scope.launch {
+            clipboard.setClipEntry(ClipEntry(ClipData.newPlainText(null, fullText)))
+        }
+        Toast.makeText(context, copiedToast, Toast.LENGTH_SHORT).show()
+    }
+
+    // Full-render capture: render the whole Column content (text+media) the
+    // layer holds at tap time; then persist via MediaStore (client-side only).
+    val saveImage: () -> Unit = {
+        scope.launch {
+            val result =
+                runCatching { captureLayer.toImageBitmap().asAndroidBitmap() }
+                    .getOrNull()
+                    ?.let { bitmap -> MessageBitmapExporter.saveMessageToPictures(context, bitmap) }
+                    ?: MessageImageSaveResult.FAILED
+            val toastRes =
+                when (result) {
+                    MessageImageSaveResult.SAVED -> R.string.chat_msg_image_saved
+                    MessageImageSaveResult.UNSUPPORTED_SDK -> R.string.chat_msg_image_save_unsupported
+                    MessageImageSaveResult.FAILED -> R.string.chat_msg_image_save_failed
+                }
+            Toast.makeText(context, toastRes, Toast.LENGTH_SHORT).show()
+        }
+    }
 
     Column(
         modifier =
             modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp)
+                .combinedClickable(
+                    onClick = {},
+                    onDoubleClick = { copyFullText() },
+                    onLongClick = null,
+                ).padding(horizontal = 16.dp)
                 .testTag("fullbleed_agent_message"),
     ) {
-        if (showReasoning && message.reasoningText.isNotBlank()) {
-            ReasoningCard(
-                reasoningText = message.reasoningText,
-                isStreaming = message.isStreaming,
-                searchQuery = reasoningSearchQuery,
-                isCurrentMatch = isCurrentReasoningMatch,
-                searchOffset = reasoningSearchOffset,
-            )
-            Spacer(modifier = Modifier.height(6.dp))
-        }
-
-        // Defense-in-depth: never render an empty prose block (blank bubble +
-        // lone Copy button). Blank rows are tool-call placeholders that slipped
-        // through upstream mapping; the parent list renders the live status
-        // indicator until the first visible delta lands.
-        // Issue #1367: agent media renders where its `MEDIA:` directive sat in the
-        // prose; attachments without a recorded position trail the text.
-        val segments =
-            remember(message.content, message.attachments) {
-                splitByMedia(message.content, message.attachments)
+        // ⚠ Captured region: ONLY this inner column lands in the saved image.
+        Column(modifier = Modifier.graphicsLayer(captureLayer)) {
+            if (showReasoning && message.reasoningText.isNotBlank()) {
+                ReasoningCard(
+                    reasoningText = message.reasoningText,
+                    isStreaming = message.isStreaming,
+                    searchQuery = reasoningSearchQuery,
+                    isCurrentMatch = isCurrentReasoningMatch,
+                    searchOffset = reasoningSearchOffset,
+                )
+                Spacer(modifier = Modifier.height(6.dp))
             }
-        segments.forEach { segment ->
-            when (segment) {
-                is MessageSegment.Text -> {
-                    SelectionContainer {
-                        MarkdownText(
-                            text = segment.text,
+
+            // Defense-in-depth: never render an empty prose block (blank bubble +
+            // lone Copy button). Blank rows are tool-call placeholders that slipped
+            // through upstream mapping; the parent list renders the live status
+            // indicator until the first visible delta lands.
+            // Issue #1367: agent media renders where its `MEDIA:` directive sat in the
+            // prose; attachments without a recorded position trail the text.
+            val segments =
+                remember(message.content, message.attachments) {
+                    splitByMedia(message.content, message.attachments)
+                }
+            segments.forEach { segment ->
+                when (segment) {
+                    is MessageSegment.Text -> {
+                        SelectionContainer {
+                            MarkdownText(
+                                text = segment.text,
+                                textColor = textColor,
+                                isStreaming = message.isStreaming,
+                                searchQuery = searchQuery,
+                                isCurrentMatch = isCurrentMatch,
+                                onImageClick = onImageClick,
+                            )
+                        }
+                    }
+
+                    is MessageSegment.Media -> {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        InlineAttachment(
+                            attachment = segment.attachment,
                             textColor = textColor,
-                            isStreaming = message.isStreaming,
-                            searchQuery = searchQuery,
-                            isCurrentMatch = isCurrentMatch,
+                            onOpen = onOpenAttachment,
+                            onSave = onSaveAttachment,
+                            savingPath = savingAttachmentPath,
+                            openingPath = openingAttachmentPath,
+                            canSave = canSaveAttachment,
                             onImageClick = onImageClick,
                         )
+                        Spacer(modifier = Modifier.height(6.dp))
                     }
-                }
-
-                is MessageSegment.Media -> {
-                    Spacer(modifier = Modifier.height(6.dp))
-                    InlineAttachment(
-                        attachment = segment.attachment,
-                        textColor = textColor,
-                        onOpen = onOpenAttachment,
-                        onSave = onSaveAttachment,
-                        savingPath = savingAttachmentPath,
-                        openingPath = openingAttachmentPath,
-                        canSave = canSaveAttachment,
-                        onImageClick = onImageClick,
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
                 }
             }
         }
@@ -222,6 +286,16 @@ internal fun FullBleedAgentMessage(
                     )
                 }
             }
+        }
+
+        // Batch-8 F1: per-message action row. Hidden while streaming (the
+        // message is not finished yet); the Save-as-image callback is injected
+        // here because it needs this composable's capture layer.
+        if (messageActions != null && !message.isStreaming) {
+            ChatMessageActionsRow(
+                actions = messageActions.copy(onSaveImage = saveImage),
+                modifier = Modifier.padding(top = 4.dp),
+            )
         }
     }
 }

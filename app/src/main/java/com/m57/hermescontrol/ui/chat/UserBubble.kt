@@ -2,12 +2,15 @@ package com.m57.hermescontrol.ui.chat
 
 import android.content.ClipData
 import android.text.format.DateFormat
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -68,8 +71,11 @@ import kotlinx.coroutines.launch
  * The user-message bubble — the universal anchor in the full-bleed chat
  * renderer (issue #866). Agent prose renders full-bleed; user messages keep
  * this bubble so the conversation stays scannable.
+ *
+ * Batch-8 F1: double-tapping the bubble copies the whole message text (toast
+ * confirmation); the inline copy button stays as the discoverable affordance.
  */
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 @Composable
 fun UserBubble(
     message: ChatMessage,
@@ -99,6 +105,8 @@ fun UserBubble(
     ) {
         val clipboard = LocalClipboard.current
         val scope = rememberCoroutineScope()
+        val context = LocalContext.current
+        val copiedToastText = stringResource(R.string.chat_msg_copied_to_clipboard)
         // Copy feedback: briefly show ✓ then revert
         var copied by rememberCopyFeedback()
 
@@ -169,6 +177,18 @@ fun UserBubble(
                                     bottomStart = 16.dp,
                                     bottomEnd = 4.dp,
                                 ),
+                            ).combinedClickable(
+                                onClick = {},
+                                onDoubleClick = {
+                                    scope.launch {
+                                        clipboard.setClipEntry(
+                                            ClipEntry(ClipData.newPlainText(null, message.content)),
+                                        )
+                                    }
+                                    copied = true
+                                    Toast.makeText(context, copiedToastText, Toast.LENGTH_SHORT).show()
+                                },
+                                onLongClick = null,
                             ).background(color = primary)
                             .testTag("chat_bubble_user"),
                     color = Color.Transparent,

@@ -197,6 +197,18 @@ data class SubagentTranscriptUiState(
     val isEmpty: Boolean get() = text.isEmpty() && !isLoading && error == null
 }
 
+/**
+ * UI-only display override for a single message (batch-8 F1 — the per-message
+ * Edit action). A null field keeps the server's value. Render-only: applied
+ * when the transcript state is resolved (TranscriptUiState.resolve), never
+ * written back to the gateway (no message.edit RPC exists) and reset whenever
+ * the session is reloaded.
+ */
+data class MessageDisplayOverride(
+    val reasoning: String? = null,
+    val content: String? = null,
+)
+
 enum class MessageRole {
     USER,
     ASSISTANT,

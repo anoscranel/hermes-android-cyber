@@ -448,6 +448,19 @@ object AuthManager {
         serverStore.update { it.copy(pinnedModels = pinned) }
     }
 
+    // ── Archived Models (Local On-Device, batch-8 F2) ────────────────────
+
+    fun getArchivedModels(): List<PinnedModel> = serverStore.getLatestState().archivedModels
+
+    fun isModelArchived(
+        providerSlug: String,
+        modelName: String,
+    ): Boolean = serverStore.getLatestState().archivedModels.contains(PinnedModel(providerSlug, modelName))
+
+    fun saveArchivedModels(archived: List<PinnedModel>) {
+        serverStore.update { it.copy(archivedModels = archived.distinct()) }
+    }
+
     // ── Hidden Profiles (Local On-Device Filtering) ──────────────────────
 
     fun getHiddenProfiles(): List<String> = serverStore.getLatestState().hiddenProfiles

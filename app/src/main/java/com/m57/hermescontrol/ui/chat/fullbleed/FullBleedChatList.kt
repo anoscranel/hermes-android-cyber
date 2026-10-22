@@ -40,6 +40,8 @@ import com.m57.hermescontrol.ui.chat.SearchTarget
 import com.m57.hermescontrol.ui.chat.ToolCallDivider
 import com.m57.hermescontrol.ui.chat.UserBubble
 import com.m57.hermescontrol.ui.chat.components.ChatHistoryPrefetch
+import com.m57.hermescontrol.ui.chat.components.ChatMessageActions
+import com.m57.hermescontrol.ui.chat.components.ChatMessageActionsRow
 import com.m57.hermescontrol.ui.chat.components.ChatScrollController
 import com.m57.hermescontrol.ui.chat.components.ClarifyBubble
 import com.m57.hermescontrol.ui.chat.components.MessageReactionChips
@@ -47,6 +49,7 @@ import com.m57.hermescontrol.ui.chat.components.ReasoningCard
 import com.m57.hermescontrol.ui.chat.components.VaultCodeCard
 import com.m57.hermescontrol.ui.chat.components.VaultSaveLoginCard
 import com.m57.hermescontrol.ui.chat.components.VaultUnlockCard
+import com.m57.hermescontrol.ui.chat.isUserTurnBoundary
 import com.m57.hermescontrol.ui.chat.toolCallMilestones
 import com.m57.hermescontrol.ui.common.EmptyState
 
@@ -331,6 +334,23 @@ fun FullBleedChatList(
                                             showUserMessageTokens = showUserMessageTokens,
                                             pendingSendState = transcript.pendingSendStates[userMessage.id],
                                         )
+                                        // Batch-8 F1: user messages get a compact action row with
+                                        // Revert (puts this text back into the composer — the
+                                        // gateway has no per-message truncate, see
+                                        // ChatViewModel.revertToMessage).
+                                        if (userMessage.isUserTurnBoundary()) {
+                                            val revertUserMessage = userMessage
+                                            ChatMessageActionsRow(
+                                                actions =
+                                                    ChatMessageActions(
+                                                        onRevert = { actions.onRevertMessage(revertUserMessage) },
+                                                    ),
+                                                modifier =
+                                                    Modifier
+                                                        .align(Alignment.End)
+                                                        .padding(horizontal = 12.dp),
+                                            )
+                                        }
                                         if (userMessage.reactions.isNotEmpty()) {
                                             MessageReactionChips(
                                                 reactions = userMessage.reactions,
@@ -437,9 +457,20 @@ fun FullBleedChatList(
                                                                     speakingMessageId == proseMessage.id
                                                             val toggleSpeakAction =
                                                                 { actions.onToggleSpeak(proseMessage) }
+                                                            // Batch-8 F1: per-message action row
+                                                            // callbacks bound to this message.
+                                                            val barMessage = proseMessage
+                                                            val barActions =
+                                                                ChatMessageActions(
+                                                                    onFork = { actions.onForkMessage(barMessage) },
+                                                                    onEdit = { actions.onEditMessage(barMessage) },
+                                                                    onTts = { actions.onTtsMessage(barMessage) },
+                                                                    onRetry = { actions.onRetryMessage(barMessage) },
+                                                                    onRevert = { actions.onRevertMessage(barMessage) },
+                                                                )
                                                             FullBleedAgentMessage(
                                                                 message = proseMessage,
-                                                                // Highlight only bubbles that actually contain a match —
+                                                                // Highlight only bubbles that contain a match —
                                                                 // the rest skip the highlight scan entirely.
                                                                 searchQuery =
                                                                     if (searchState.isActive &&
@@ -485,6 +516,7 @@ fun FullBleedChatList(
                                                                 messageStatsEnabled = messageStatsEnabled,
                                                                 showAssistantMessageTokens = showAssistantMessageTokens,
                                                                 showTokensPerSecond = showTokensPerSecond,
+                                                                messageActions = barActions,
                                                             )
                                                         }
                                                     }

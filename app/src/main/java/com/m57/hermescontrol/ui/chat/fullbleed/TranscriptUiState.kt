@@ -42,6 +42,21 @@ data class TranscriptUiState(
     val pendingSendStates: Map<String, PendingSendState> = emptyMap(),
 ) {
     companion object {
+        /** Apply UI-only per-message display overrides (batch-8 F1 Edit) at the render boundary. */
+        private fun applyDisplayOverrides(
+            messages: List<ChatMessage>,
+            chat: ChatUiState,
+        ): List<ChatMessage> {
+            if (chat.messageDisplayOverrides.isEmpty()) return messages
+            return messages.map { message ->
+                val override = chat.messageDisplayOverrides[message.id] ?: return@map message
+                message.copy(
+                    content = override.content ?: message.content,
+                    reasoningText = override.reasoning ?: message.reasoningText,
+                )
+            }
+        }
+
         /** Resolve historical versus live mode at the state boundary, not in the screen call. */
         fun resolve(
             chat: ChatUiState,
@@ -53,14 +68,17 @@ data class TranscriptUiState(
             val historical = timeline.isHistorical
             return TranscriptUiState(
                 messages =
-                    if (historical) {
-                        timeline.historyMessages ?: chat.messages
-                    } else {
-                        messagesWithoutUnsentQueue(
-                            messagesWithoutUnconfirmedReceipts(chat.messages, chat.pendingSends),
-                            chat.pendingSends,
-                        )
-                    },
+                    applyDisplayOverrides(
+                        if (historical) {
+                            timeline.historyMessages ?: chat.messages
+                        } else {
+                            messagesWithoutUnsentQueue(
+                                messagesWithoutUnconfirmedReceipts(chat.messages, chat.pendingSends),
+                                chat.pendingSends,
+                            )
+                        },
+                        chat,
+                    ),
                 streamingState = if (historical) StreamingState() else streaming,
                 isAgentTyping = !historical && chat.isAgentTyping,
                 typingEffectEnabled = !historical && chat.typingEffectEnabled,
@@ -110,4 +128,11 @@ class TranscriptActions(
     val onRespondVaultCode: (String) -> Unit,
     val onDismissVaultCode: () -> Unit,
     val onToggleSpeak: (ChatMessage) -> Unit,
+    // Batch-8 F1 per-message action bar (server-backed where the spec allows,
+    // client-side otherwise — see ChatViewModel for the exact semantics).
+    val onForkMessage: (ChatMessage) -> Unit = {},
+    val onEditMessage: (ChatMessage) -> Unit = {},
+    val onTtsMessage: (ChatMessage) -> Unit = {},
+    val onRetryMessage: (ChatMessage) -> Unit = {},
+    val onRevertMessage: (ChatMessage) -> Unit = {},
 )

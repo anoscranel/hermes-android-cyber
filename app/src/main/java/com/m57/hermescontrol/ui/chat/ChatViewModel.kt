@@ -252,6 +252,8 @@ data class ChatUiState(
     val showModelPicker: Boolean = false,
     val modelPickerProviders: List<ModelProvider> = emptyList(),
     val modelPickerPinned: List<PinnedModel> = emptyList(),
+    /** Locally archived models (batch-8 F2) — client-side only, never sent to the server. */
+    val modelPickerArchived: List<PinnedModel> = emptyList(),
     val modelPickerLoading: Boolean = false,
     val modelSwitchConfirmMessage: String? = null,
     // #1588: multi-turn /undo N waits here for confirmation before command.dispatch.
@@ -327,6 +329,14 @@ data class ChatUiState(
     val isResumeRetrying: Boolean = false,
     /** Text staged to prefill the composer (e.g. from /undo). */
     val pendingPrefillText: String? = null,
+    /**
+     * UI-only per-message display overrides (batch-8 F1 — the Edit action):
+     * messageId → replacement thinking/response text. Render-side only,
+     * applied in TranscriptUiState.resolve; the gateway exposes no
+     * message.edit RPC, so nothing is ever written back. Cleared on every
+     * session switch/reload (resetSessionState).
+     */
+    val messageDisplayOverrides: Map<String, MessageDisplayOverride> = emptyMap(),
     /**
      * Storage id of the session minted by the top-bar Temporary Chat toggle
      * (batch-5B B3). Deleted the moment the user leaves it — switching to any
@@ -4630,13 +4640,23 @@ class ChatViewModel(
      * The optional arg becomes the new branch's title.
      */
     private fun branchSession(command: String) {
-        val sessionId = runtimeSessionId
-        if (sessionId == null) {
+        if (runtimeSessionId == null) {
             addAssistantMessage("No active session. Use `/new` to create one.")
             return
         }
         val arg = command.split(" ", limit = 2).getOrElse(1) { "" }.trim()
-        val params = SessionBranchWholeParams(sessionId = sessionId, name = arg.takeIf { it.isNotBlank() })
+        sendBranchWholeRequest(arg.takeIf { it.isNotBlank() })
+    }
+
+    /**
+     * Sends the `session.branch_whole` RPC for the runtime session, wiring
+     * [branchWholeRequests] + session-request tracking so the response handoff
+     * (resetSessionState + loadSessionMessages) switches to the new branch the
+     * same way `/fork` does. Returns false when no session is active.
+     */
+    private fun sendBranchWholeRequest(name: String?): Boolean {
+        val sessionId = runtimeSessionId ?: return false
+        val params = SessionBranchWholeParams(sessionId = sessionId, name = name)
         val generation = sessionGeneration
         viewModelScope.launch(ioDispatcher) {
             wsClient.send(
@@ -4648,7 +4668,22 @@ class ChatViewModel(
                 },
             )
         }
+        return true
     }
+
+    /**
+     * Fork the active conversation from the per-message fork dialog (batch-8
+     * F1). AVAILABILITY: [com.m57.hermescontrol.data.ws.contract.SessionBranchParams]
+     * carries only `session_id` + `name` — the gateway has NO from-index /
+     * message-anchor param, so "fork from this message" cannot anchor at a
+     * point; both dialog options branch the WHOLE conversation via the same
+     * backend path `/fork` uses. On success the response handler switches to
+     * the new session automatically (see RpcMethods.SESSION_BRANCH_WHOLE in
+     * the RPC result reducer).
+     *
+     * @return false when no runtime session is active (UI shows a toast).
+     */
+    fun forkActiveSession(name: String?): Boolean = sendBranchWholeRequest(name)
 
     private fun dispatchViaRpc(command: String) {
         val sessionId = runtimeSessionId
@@ -5056,6 +5091,114 @@ class ChatViewModel(
     fun consumePendingPrefill() {
         _uiState.update { it.copy(pendingPrefillText = null) }
     }
+
+    // ── Per-message action bar (batch-8 F1) ──────────────────────────────
+
+    /** Result of [retryMessage] so the UI can show an accurate toast. */
+    enum class MessageRetryResult { RESENT, BUSY, NO_PROMPT, NOT_SUBMITTED }
+
+    /** Result of [revertToMessage]. */
+    enum class MessageRevertResult { PREFILLED, NO_PROMPT }
+
+    /**
+     * Writes or clears a UI-only display override for one message (the Edit
+     * action). A field equal to the server's value is NOT stored, so the
+     * override vanishes automatically once everything matches the source.
+     * See [ChatUiState.messageDisplayOverrides] for the exact semantics.
+     */
+    fun setMessageDisplayOverride(
+        messageId: String,
+        reasoning: String?,
+        content: String?,
+    ) {
+        _uiState.update { state ->
+            val original = state.messages.firstOrNull { it.id == messageId }
+            if (original == null) {
+                state
+            } else {
+                val reasoningOverride = reasoning?.takeIf { it != original.reasoningText }
+                val contentOverride = content?.takeIf { it != original.content }
+                val next = state.messageDisplayOverrides.toMutableMap()
+                if (reasoningOverride == null && contentOverride == null) {
+                    next.remove(messageId)
+                } else {
+                    next[messageId] =
+                        MessageDisplayOverride(
+                            reasoning = reasoningOverride,
+                            content = contentOverride,
+                        )
+                }
+                state.copy(messageDisplayOverrides = next)
+            }
+        }
+    }
+
+    /**
+     * Retries the USER prompt that produced the assistant message
+     * [assistantMessageId]: finds the last user-boundary message before it in
+     * the local timeline and resends its text through the SAME path the
+     * composer uses ([sendMessage] → prompt.submit). Never interrupts a
+     * running turn and never fakes a non-existing prompt.
+     */
+    fun retryMessage(assistantMessageId: String): MessageRetryResult {
+        val snapshot = _uiState.value
+        if (snapshot.isAgentTyping) return MessageRetryResult.BUSY
+        val index = snapshot.messages.indexOfFirst { it.id == assistantMessageId }
+        if (index < 0) return MessageRetryResult.NO_PROMPT
+        val prompt =
+            snapshot.messages
+                .subList(0, index)
+                .lastOrNull { it.isUserTurnBoundary() }
+                ?.content
+                .takeUnless { it.isNullOrBlank() }
+                ?: return MessageRetryResult.NO_PROMPT
+        return if (sendMessage(prompt)) {
+            MessageRetryResult.RESENT
+        } else {
+            MessageRetryResult.NOT_SUBMITTED
+        }
+    }
+
+    /**
+     * "Revert" for one message (batch-8 F1). CLIENT-SIDE ONLY: the gateway's
+     * WS surface (WsMethods) exposes NO per-message truncate/delete-from-here
+     * RPC — `/undo` rewinds whole turns via command.dispatch and the branch
+     * RPCs anchor nothing — so revert cannot cut the transcript server-side.
+     * What it does: takes the USER prompt text back into the composer as a
+     * draft (the tapped message's own text for user rows; the prompt that
+     * produced this reply for assistant rows) so it can be edited and resent.
+     * The server transcript stays as-is; the UI tells the user via toast.
+     */
+    fun revertToMessage(messageId: String): MessageRevertResult {
+        val snapshot = _uiState.value
+        val index = snapshot.messages.indexOfFirst { it.id == messageId }
+        if (index < 0) return MessageRevertResult.NO_PROMPT
+        val message = snapshot.messages[index]
+        val promptText =
+            if (message.isUserTurnBoundary()) {
+                message.content
+            } else {
+                snapshot.messages
+                    .subList(0, index)
+                    .lastOrNull { it.isUserTurnBoundary() }
+                    ?.content
+            }
+        if (promptText.isNullOrBlank()) return MessageRevertResult.NO_PROMPT
+        _uiState.update { it.copy(pendingPrefillText = promptText) }
+        return MessageRevertResult.PREFILLED
+    }
+
+    /** Bulk pin toggle target for the model picker selection mode (batch-8 F2). */
+    fun setModelsPinned(
+        models: List<PinnedModel>,
+        pinned: Boolean,
+    ) = modelSwitchDelegate.setModelsPinned(models, pinned)
+
+    /** Bulk archive toggle target for the model picker selection mode (batch-8 F2). */
+    fun setModelsArchived(
+        models: List<PinnedModel>,
+        archived: Boolean,
+    ) = modelSwitchDelegate.setModelsArchived(models, archived)
 
     // ── Session management ───────────────────────────────────────────────
 
@@ -6379,6 +6522,7 @@ class ChatViewModel(
                 resumeError = null,
                 isResumeRetrying = false,
                 pendingPrefillText = null,
+                messageDisplayOverrides = emptyMap(),
                 stagedProject = null,
                 sessionProjectId = null,
                 isMovingProject = false,

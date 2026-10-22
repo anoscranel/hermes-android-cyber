@@ -111,6 +111,9 @@ import com.m57.hermescontrol.ui.chat.components.ContextDetailSheet
 import com.m57.hermescontrol.ui.chat.components.ContextMeterRing
 import com.m57.hermescontrol.ui.chat.components.MediaModelsSheet
 import com.m57.hermescontrol.ui.chat.components.MediaViewerDialog
+import com.m57.hermescontrol.ui.chat.components.MessageEditDialog
+import com.m57.hermescontrol.ui.chat.components.MessageForkDialog
+import com.m57.hermescontrol.ui.chat.components.MessageTtsDialog
 import com.m57.hermescontrol.ui.chat.components.ModelManagerSheet
 import com.m57.hermescontrol.ui.chat.components.PendingSendRecovery
 import com.m57.hermescontrol.ui.chat.components.ProbeSheet
@@ -133,6 +136,7 @@ import com.m57.hermescontrol.ui.chat.components.rememberChatImagePaste
 import com.m57.hermescontrol.ui.chat.components.rememberChatMediaLaunchers
 import com.m57.hermescontrol.ui.chat.components.rememberChatScrollController
 import com.m57.hermescontrol.ui.chat.components.rememberChatSpeech
+import com.m57.hermescontrol.ui.chat.components.rememberMessageTtsController
 import com.m57.hermescontrol.ui.chat.components.replaceComposerDraft
 import com.m57.hermescontrol.ui.chat.components.restoreRejectedComposerDraft
 import com.m57.hermescontrol.ui.chat.components.shouldShowProgressChip
@@ -444,6 +448,12 @@ fun ChatScreen(
         }
     }
     var viewingImage by rememberSaveable { mutableStateOf<ImageViewerModel?>(null) }
+    // Batch-8 F1: per-message action dialogs (fork/edit/tts) + one shared
+    // device-TTS controller (shutdown when this screen disposes).
+    var messageForkTarget by remember { mutableStateOf<ChatMessage?>(null) }
+    var messageEditTarget by remember { mutableStateOf<ChatMessage?>(null) }
+    var messageTtsTarget by remember { mutableStateOf<ChatMessage?>(null) }
+    val messageTtsController = rememberMessageTtsController()
     val snackbarHostState = remember { SnackbarHostState() }
     val imagePaste =
         rememberChatImagePaste(viewModel) { message ->
@@ -791,6 +801,35 @@ fun ChatScreen(
                                     ),
                                 )
                             },
+                            // Batch-8 F1 per-message actions (see ChatViewModel for semantics).
+                            onForkMessage = { message -> messageForkTarget = message },
+                            onEditMessage = { message -> messageEditTarget = message },
+                            onTtsMessage = { message -> messageTtsTarget = message },
+                            onRetryMessage = { message ->
+                                val feedback =
+                                    when (viewModel.retryMessage(message.id)) {
+                                        ChatViewModel.MessageRetryResult.RESENT ->
+                                            R.string.chat_msg_retry_sent
+
+                                        ChatViewModel.MessageRetryResult.BUSY ->
+                                            R.string.chat_msg_retry_busy
+
+                                        else ->
+                                            R.string.chat_msg_retry_no_prompt
+                                    }
+                                scrollScope.launch { snackbarHostState.showSnackbar(context.getString(feedback)) }
+                            },
+                            onRevertMessage = { message ->
+                                val feedback =
+                                    when (viewModel.revertToMessage(message.id)) {
+                                        ChatViewModel.MessageRevertResult.PREFILLED ->
+                                            R.string.chat_msg_revert_prefilled
+
+                                        ChatViewModel.MessageRevertResult.NO_PROMPT ->
+                                            R.string.chat_msg_revert_no_prompt
+                                    }
+                                scrollScope.launch { snackbarHostState.showSnackbar(context.getString(feedback)) }
+                            },
                         ),
                     searchState = searchState,
                     listState = listState,
@@ -1136,11 +1175,51 @@ fun ChatScreen(
                 title = stringResource(R.string.chat_switch_model_title),
                 isLoading = state.modelPickerLoading && state.modelPickerProviders.isEmpty(),
                 pinnedModels = state.modelPickerPinned,
+                archivedModels = state.modelPickerArchived,
                 onPinToggle = { provider, model -> viewModel.togglePinModel(provider, model) },
+                onBulkSetPinned = { models, pinned -> viewModel.setModelsPinned(models, pinned) },
+                onBulkSetArchived = { models, archived -> viewModel.setModelsArchived(models, archived) },
                 onSelect = { provider, model ->
                     viewModel.sendSlashModel(provider, model)
                 },
                 onDismiss = { viewModel.closeModelPicker() },
+            )
+        }
+
+        // Batch-8 F1: per-message action dialogs (fork / edit / TTS popover).
+        messageForkTarget?.let { forkTarget ->
+            MessageForkDialog(
+                conversationTitle = state.chatTitle,
+                onDismiss = { messageForkTarget = null },
+                onFork = { name ->
+                    messageForkTarget = null
+                    // The branch result handler auto-switches to the new
+                    // session (same slot as /fork); failure = no session.
+                    if (!viewModel.forkActiveSession(name)) {
+                        scrollScope.launch {
+                            snackbarHostState.showSnackbar(context.getString(R.string.chat_msg_fork_failed))
+                        }
+                    }
+                },
+            )
+        }
+
+        messageEditTarget?.let { editTarget ->
+            MessageEditDialog(
+                current = editTarget,
+                onDismiss = { messageEditTarget = null },
+                onSave = { reasoning, content ->
+                    viewModel.setMessageDisplayOverride(editTarget.id, reasoning, content)
+                    messageEditTarget = null
+                },
+            )
+        }
+
+        messageTtsTarget?.let { ttsTarget ->
+            MessageTtsDialog(
+                text = ttsTarget.content,
+                controller = messageTtsController,
+                onDismiss = { messageTtsTarget = null },
             )
         }
 
