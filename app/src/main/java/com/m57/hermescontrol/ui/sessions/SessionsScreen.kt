@@ -128,6 +128,7 @@ import com.m57.hermescontrol.ui.sessions.components.SessionCard
 import com.m57.hermescontrol.ui.sessions.components.SessionsBulkActionBar
 import com.m57.hermescontrol.ui.sessions.components.SessionsDialogs
 import com.m57.hermescontrol.ui.sessions.components.SessionsStatsRow
+import com.m57.hermescontrol.ui.sessions.components.UnpinnedSectionHeader
 import com.m57.hermescontrol.ui.sessions.components.automationGroups
 import com.m57.hermescontrol.ui.sessions.components.sourceLabel
 import kotlinx.coroutines.delay
@@ -1075,13 +1076,10 @@ fun SessionsScreen(
                                             }
                                         }
                                         item(key = "history_header") {
-                                            Text(
-                                                text = "History",
-                                                style = MaterialTheme.typography.labelLarge,
-                                                fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                modifier = Modifier.padding(vertical = spacing.xs),
-                                            )
+                                            // Batch-7 W6: name the unpinned
+                                            // slice — the section order reads
+                                            // Pinned → Unpinned → the rest.
+                                            UnpinnedSectionHeader()
                                         }
                                     }
                                     if (state.groupByProject && !state.isSearchMode) {

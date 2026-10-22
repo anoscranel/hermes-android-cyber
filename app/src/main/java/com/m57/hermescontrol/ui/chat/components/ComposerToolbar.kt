@@ -15,6 +15,7 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -142,6 +143,10 @@ fun ComposerToolbar(
     isVoiceNoteLocked: Boolean = false,
     onSlideProgress: (Float) -> Unit = {},
     onStopGeneration: () -> Unit = {},
+    /** Session overflow menu content, anchored inside THIS overflow button's
+     * box (batch-7 W1 — previously anchored to a bare sibling Box under the
+     * composer card in ChatScreen). Empty lambda = no menu. */
+    overflowMenu: @Composable BoxScope.() -> Unit = {},
 ) {
     var showReasoningMenu by remember { mutableStateOf(false) }
     val palette = composerPalette()
@@ -536,7 +541,9 @@ fun ComposerToolbar(
 
         // Overflow — opens the session menu moved down from the top bar
         // (timeline / search / integrations / background connection). Same
-        // gesture-owning container pattern as the other custom buttons.
+        // gesture-owning container pattern as the other custom buttons; the
+        // menu itself anchors to THIS box (batch-7 W1), not a sibling under
+        // the composer card.
         Box(
             modifier =
                 Modifier
@@ -552,6 +559,7 @@ fun ComposerToolbar(
                 contentDescription = stringResource(R.string.chat_overflow_menu_desc),
                 tint = palette.onControl,
             )
+            overflowMenu()
         }
 
         // New chat — the free slot right of the overflow button;

@@ -37,7 +37,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
@@ -145,6 +144,7 @@ import com.m57.hermescontrol.ui.common.AutoScrollingTitleText
 import com.m57.hermescontrol.ui.common.CredentialWarningBanner
 import com.m57.hermescontrol.ui.common.HermesScaffold
 import com.m57.hermescontrol.ui.common.NavIcon
+import com.m57.hermescontrol.ui.common.TempChatIcon
 import com.m57.hermescontrol.ui.model.components.ModelPickerDialog
 import com.m57.hermescontrol.ui.sessions.HistorySection
 import com.m57.hermescontrol.ui.settings.SettingsViewModel
@@ -262,7 +262,8 @@ fun ChatScreen(
     var showMediaModelsSheet by rememberSaveable { mutableStateOf(false) }
     var showProbeSheet by rememberSaveable { mutableStateOf(false) }
     // Session overflow menu (issue #1091) — relocated from the top bar to the
-    // composer overflow button (batch-5B B2); it anchors next to the input bar.
+    // composer overflow button (batch-5B B2); it anchors inside that button's
+    // box via ChatInputBar's overflowMenu slot (batch-7 W1).
     var showSessionMenu by remember { mutableStateOf(false) }
     // Shared model-manager VM so the probe sheet reuses the loaded catalog.
     val modelManagerViewModel: ModelManagerViewModel = viewModel { ModelManagerViewModel() }
@@ -384,11 +385,20 @@ fun ChatScreen(
             scrollController.jumpToHistoryStart()
         }
     }
-    // Scroll FAB = reverse of the reader's last scroll move (batch-6 F6):
-    // ROLLING toward the newest messages → up-arrow, tap jumps to the TOP;
-    // ROLLING into history (away from the bottom) → down-arrow, tap jumps to
-    // BOTTOM. Shown only while the offered jump would actually move the list
-    // (up: not at the top; down: not at the bottom / follow paused).
+    // Scroll FAB = reverse of the reader's last scroll move (batch-6 F6).
+    // Batch-7 W2 sign audit — FullBleedChatList's LazyColumn has NO
+    // reverseLayout: index 0 is the OLDEST message at the top, and indices
+    // grow toward the newest at the bottom, so firstVisible index/offset
+    // deltas map one-to-one to physical drags:
+    //   drag UP   (viewport heads to the newest; index/offset GROW,
+    //             +scroll delta) → lastScrollTowardBottom = true
+    //             → FAB shows the UP arrow → tap jumps to the TOP (oldest).
+    //   drag DOWN (viewport heads to the oldest; index/offset FALL,
+    //             -scroll delta) → lastScrollTowardBottom = false
+    //             → FAB shows the DOWN arrow → tap jumps to the BOTTOM.
+    // Ends override (batch-7 W2): at the exact bottom with history above, the
+    // up branch is live (canScrollBackward); at the exact top with messages
+    // below, the down branch is live (follow is paused there).
     val fabScrollsUp by remember { derivedStateOf { scrollController.lastScrollTowardBottom } }
     val showScrollFab by remember(timelineState.isHistorical, displayedMessages) {
         derivedStateOf {
@@ -602,15 +612,14 @@ fun ChatScreen(
         actions = {
             // Temporary Chat Mode (batch-5B B3): mints a session whose row is
             // deleted the moment the user leaves it. Toggling OFF lands on a
-            // fresh normal session. Glyph (batch-6 P1): ChatGPT-style bubble —
-            // Material ships no dashed bubble, so ChatBubbleOutline is the
-            // closest semantic glyph; the tint still marks the active state.
+            // fresh normal session. Glyph (batch-7 W7): the custom TempChatIcon
+            // — a ChatGPT-style dashed speech bubble. The tint marks state.
             IconButton(
                 onClick = viewModel::toggleTemporaryChat,
                 modifier = Modifier.testTag("temp_chat_button"),
             ) {
                 Icon(
-                    imageVector = Icons.Outlined.ChatBubbleOutline,
+                    imageVector = TempChatIcon,
                     contentDescription = stringResource(R.string.chat_temp_chat_desc),
                     tint =
                         if (state.isTemporaryChat) {
@@ -999,80 +1008,81 @@ fun ChatScreen(
                 fastSupported = state.currentModelCapabilities?.fast == true,
                 isFastModeChanging = state.isFastModeChanging,
                 onToggleFastMode = { viewModel.toggleFastMode() },
+                // Session actions overflow menu (issue #1091): content moved
+                // down from the top bar with batch-5B; batch-7 W1 moves the
+                // ANCHOR into the composer's overflow button itself — batch-5B
+                // anchored it to a bare sibling Box under the input bar, the
+                // phantom "black band above the composer" suspect.
+                overflowMenu = {
+                    DropdownMenu(
+                        expanded = showSessionMenu,
+                        onDismissRequest = { showSessionMenu = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.chat_action_timeline)) },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Filled.History,
+                                    contentDescription = null,
+                                )
+                            },
+                            enabled = state.currentSessionId != null,
+                            onClick = {
+                                showSessionMenu = false
+                                viewModel.openTimeline()
+                            },
+                            modifier = Modifier.testTag("chat_menu_timeline"),
+                        )
+
+                        // Chat search lives in this overflow menu (moved from the top bar)
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    stringResource(
+                                        if (searchState.isActive) {
+                                            R.string.chat_action_close_search
+                                        } else {
+                                            R.string.chat_action_search
+                                        },
+                                    ),
+                                )
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector =
+                                        if (searchState.isActive) Icons.Filled.Close else Icons.Filled.Search,
+                                    contentDescription = null,
+                                )
+                            },
+                            onClick = {
+                                showSessionMenu = false
+                                viewModel.toggleSearch()
+                            },
+                            enabled = !timelineState.isHistorical,
+                            modifier = Modifier.testTag("chat_menu_search"),
+                        )
+
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.session_integrations_menu_item)) },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Filled.Extension,
+                                    contentDescription = null,
+                                )
+                            },
+                            onClick = {
+                                showSessionMenu = false
+                                connectorsViewModel.show()
+                            },
+                            modifier = Modifier.testTag("chat_menu_session_integrations"),
+                        )
+                        ChatBackgroundConnectionMenuItem(
+                            checked = settingsState.keepConnectedInBackground,
+                            onToggle = settingsViewModel::onKeepConnectedInBackgroundChange,
+                        )
+                    }
+                },
             )
-
-            // Session actions overflow menu (issue #1091) — relocated from the
-            // top bar into the composer's overflow button (batch-5B B2). The
-            // sibling Box right under the input bar is the popup's anchor.
-            Box {
-                DropdownMenu(
-                    expanded = showSessionMenu,
-                    onDismissRequest = { showSessionMenu = false },
-                ) {
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.chat_action_timeline)) },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Filled.History,
-                                contentDescription = null,
-                            )
-                        },
-                        enabled = state.currentSessionId != null,
-                        onClick = {
-                            showSessionMenu = false
-                            viewModel.openTimeline()
-                        },
-                        modifier = Modifier.testTag("chat_menu_timeline"),
-                    )
-
-                    // Chat search lives in this overflow menu (moved from the top bar)
-                    DropdownMenuItem(
-                        text = {
-                            Text(
-                                stringResource(
-                                    if (searchState.isActive) {
-                                        R.string.chat_action_close_search
-                                    } else {
-                                        R.string.chat_action_search
-                                    },
-                                ),
-                            )
-                        },
-                        leadingIcon = {
-                            Icon(
-                                imageVector =
-                                    if (searchState.isActive) Icons.Filled.Close else Icons.Filled.Search,
-                                contentDescription = null,
-                            )
-                        },
-                        onClick = {
-                            showSessionMenu = false
-                            viewModel.toggleSearch()
-                        },
-                        enabled = !timelineState.isHistorical,
-                        modifier = Modifier.testTag("chat_menu_search"),
-                    )
-
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.session_integrations_menu_item)) },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Filled.Extension,
-                                contentDescription = null,
-                            )
-                        },
-                        onClick = {
-                            showSessionMenu = false
-                            connectorsViewModel.show()
-                        },
-                        modifier = Modifier.testTag("chat_menu_session_integrations"),
-                    )
-                    ChatBackgroundConnectionMenuItem(
-                        checked = settingsState.keepConnectedInBackground,
-                        onToggle = settingsViewModel::onKeepConnectedInBackgroundChange,
-                    )
-                }
-            }
         }
 
         ChatTimelineSheet(

@@ -17,9 +17,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.m57.hermescontrol.R
 import com.m57.hermescontrol.theme.LocalSpacing
 
 @Composable
@@ -57,6 +59,28 @@ fun PinnedSectionHeader(
             contentDescription = if (expanded) "Collapse pinned sessions" else "Expand pinned sessions",
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(20.dp),
+        )
+    }
+}
+
+/**
+ * "Unpinned" section label between the pinned slice and the rest of the
+ * History list (batch-7 W6). Same row treatment as [PinnedSectionHeader] but
+ * non-interactive: the unpinned slice is the list's main body, so there is no
+ * count, pin glyph, or collapse chevron.
+ */
+@Composable
+fun UnpinnedSectionHeader(modifier: Modifier = Modifier) {
+    val spacing = LocalSpacing.current
+    Row(
+        modifier = modifier.fillMaxWidth().padding(vertical = spacing.xs),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = stringResource(R.string.sessions_section_unpinned),
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }

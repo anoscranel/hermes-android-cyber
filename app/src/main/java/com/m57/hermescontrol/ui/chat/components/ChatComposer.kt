@@ -19,6 +19,7 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -151,6 +152,9 @@ fun ChatInputBar(
     onStopGeneration: () -> Unit = {},
     receiveContentListener: ReceiveContentListener? = null,
     isReceivingContent: Boolean = false,
+    /** Session overflow menu content, anchored inside the composer toolbar's
+     * own overflow button (batch-7 W1). Empty lambda = no menu. */
+    overflowMenu: @Composable BoxScope.() -> Unit = {},
 ) {
     val inputText = inputState.text.toString()
     // Allow sending while the agent is mid-turn or awaiting approval: the
@@ -556,6 +560,7 @@ fun ChatInputBar(
                         reasoningWireLevel = reasoningWireLevel,
                         pendingReasoningLevel = pendingReasoningLevel,
                         isSessionReady = isSessionReady,
+                        overflowMenu = overflowMenu,
                     )
 
                     AttachmentTray(

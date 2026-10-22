@@ -81,7 +81,16 @@ fun SearchResultCard(
                 .testTag("session_card_${session.id}")
                 .combinedClickable(
                     onClick = onCardClick,
-                    onLongClick = { if (!isSelecting) menuExpanded = true },
+                    // Batch-7 W4: long-press enters selection MODE directly,
+                    // same as SessionCard; while selecting it re-opens the
+                    // row's action menu so rename/delete stay reachable.
+                    onLongClick = {
+                        if (isSelecting) {
+                            menuExpanded = true
+                        } else {
+                            onSelect()
+                        }
+                    },
                 ),
         colors =
             CardDefaults.cardColors(
@@ -200,14 +209,16 @@ fun SearchResultCard(
                 }
             }
 
-            // Per-session action menu (hold the card to open)
+            // Per-session action menu (hold the card while selecting to open)
             SessionActionMenu(
                 expanded = menuExpanded,
                 onDismiss = { menuExpanded = false },
                 isDeleting = isDeleting,
                 onSelect = {
                     menuExpanded = false
-                    onSelect()
+                    // The menu only opens once a selection already runs (see
+                    // the long-press binding); re-toggling would exit the mode.
+                    if (!isSelecting) onSelect()
                 },
                 onRename = {
                     menuExpanded = false

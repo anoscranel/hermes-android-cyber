@@ -201,7 +201,18 @@ fun SessionCard(
                 .testTag("session_card_${session.id}")
                 .combinedClickable(
                     onClick = onCardClick,
-                    onLongClick = { if (!isSelecting) menuExpanded = true },
+                    // Batch-7 W4: long-press enters selection MODE directly
+                    // (batch-6 left it opening this card's action menu, so the
+                    // History screen never got the gesture the sheet has).
+                    // Once a selection runs, long-press re-opens the row's
+                    // action menu — pin/rename/delete stay reachable here.
+                    onLongClick = {
+                        if (isSelecting) {
+                            menuExpanded = true
+                        } else {
+                            onSelect()
+                        }
+                    },
                 ),
         colors = CardDefaults.cardColors(containerColor = palette.card),
         border =
@@ -299,7 +310,10 @@ fun SessionCard(
                 },
                 onSelect = {
                     menuExpanded = false
-                    onSelect()
+                    // The menu only opens once a selection already runs (see
+                    // the long-press binding); toggling selection again here
+                    // would exit the mode and drop the checked rows.
+                    if (!isSelecting) onSelect()
                 },
                 onRename = {
                     menuExpanded = false

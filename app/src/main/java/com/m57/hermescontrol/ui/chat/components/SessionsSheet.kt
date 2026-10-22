@@ -657,11 +657,13 @@ private fun SessionsSheetList(
             )
         }
 
-        // Divider between the pinned group and everything else.
+        // Divider between the pinned group and everything else. Batch-7 W5:
+        // doubled thickness (2dp → 4dp) at the stronger `outline` tier so the
+        // pinned block visibly detaches from the unpinned list.
         if (pinnedSessions.isNotEmpty() && unpinnedSessions.isNotEmpty()) {
             item(key = "pinned_divider") {
                 HorizontalDivider(
-                    thickness = 2.dp,
+                    thickness = 4.dp,
                     color = MaterialTheme.colorScheme.outline,
                     modifier = Modifier.testTag("sessions_sheet_pinned_divider"),
                 )

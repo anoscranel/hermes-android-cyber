@@ -61,11 +61,16 @@ class ChatScrollController(
 
     /**
      * The direction of the reader's LAST in-progress scroll movement, tracked
-     * from first-visible index/offset deltas (list index 0 = oldest message at
-     * the top). The FAB offers the REVERSE jump (batch-6 F6): heading toward
-     * the newest messages (index growing) → FAB shows an up-arrow and jumps to
-     * the TOP; diving into history (index shrinking, away from the bottom) →
-     * FAB shows a down-arrow and jumps to BOTTOM.
+     * from first-visible index/offset deltas. Batch-7 W2 audit: the chat
+     * LazyColumn has `reverseLayout` UNSET (false) — index 0 is the oldest
+     * message at the top, indices grow toward the newest at the bottom, so an
+     * INCREASING index/offset (+scroll delta) means the viewport is heading
+     * to the bottom/newest (finger dragging UP), and a DECREASING one
+     * (-scroll delta) means heading to the top/oldest (finger dragging DOWN).
+     * The FAB offers the REVERSE jump (batch-6 F6, reaffirmed batch-7):
+     * lastScrollTowardBottom=true (viewport moving to the newest) → UP arrow,
+     * tap jumps to the TOP; false (moving into history) → DOWN arrow, tap
+     * jumps to the BOTTOM.
      */
     var lastScrollTowardBottom by mutableStateOf(true)
         private set
@@ -112,6 +117,13 @@ class ChatScrollController(
      * history prepends re-index rows without the user moving, and instant
      * programmatic jumps (follow, search) leave isScrollInProgress false when
      * the snapshot lands — neither is user motion.
+     *
+     * Sign map (batch-7 W2 verification, reverseLayout=false list):
+     * `index > lastIndex` or `offset > lastOffset` (+delta) = viewport moved
+     * DOWN-list toward the newest = user dragged UP → lastScrollTowardBottom
+     * = true → FAB = KeyboardArrowUp → jumpToTop. Negative delta = viewport
+     * toward the oldest = user dragged DOWN → false → KeyboardArrowDown →
+     * resumeFollowing (bottom).
      */
     fun observeScrollDirection() {
         scope.launch {

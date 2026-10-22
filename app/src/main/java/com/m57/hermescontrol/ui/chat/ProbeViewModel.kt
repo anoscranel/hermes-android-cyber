@@ -257,7 +257,7 @@ class ProbeViewModel : ViewModel() {
 
         // Await MessageComplete OR the RpcError for THIS request. The gateway
         // answers a bad/stale session id with 4001 "session not found" and
-        // never emits a completion — failing fast here turns a 45s hang into
+        // never emits a completion — failing fast here turns a 20s hang into
         // an immediate, truthful error row. Errors are correlated by the
         // request id the send returned (JSON-RPC echoes it), so a concurrent
         // chat or another probe's error cannot fail this probe.
@@ -331,6 +331,13 @@ class ProbeViewModel : ViewModel() {
 
     companion object {
         private const val PROBE_PROMPT = "Reply with exactly: ok"
-        private const val PROBE_TIMEOUT_MS = 45_000L
+
+        // Batch-7 W8: 45s → 20s per-model wait. Speed comes from a shorter
+        // BOUNDED wait, not parallelism: batch-6 reverted 3-concurrent probes
+        // because WS MessageComplete correlates per-SESSION, not request-id,
+        // so parallel probes cross-attribute completions (the real "not
+        // working"). Correctness forces sequential probing; the original main
+        // assignment is restored in finally either way.
+        private const val PROBE_TIMEOUT_MS = 20_000L
     }
 }

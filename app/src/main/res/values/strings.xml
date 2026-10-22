@@ -955,6 +955,7 @@
     <string name="sessions_section_automation_job">Job %1$s</string>
     <string name="sessions_section_automation_unknown">Automation run</string>
     <string name="sessions_section_automation_runs">%1$d loaded run(s)</string>
+    <string name="sessions_section_unpinned">Unpinned</string>
     <string name="sessions_action_prune">Prune</string>
     <string name="sessions_prune_title">Prune Old Sessions</string>
     <string name="sessions_prune_desc">Delete sessions older than the specified number of days.</string>
