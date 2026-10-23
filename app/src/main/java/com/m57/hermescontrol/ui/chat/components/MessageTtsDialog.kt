@@ -83,7 +83,7 @@ class MessageTtsController(
             }
         speaking =
             engine.speak(text, TextToSpeech.QUEUE_FLUSH, params, MESSAGE_UTTERANCE_ID) ==
-                TextToSpeech.SUCCESS
+            TextToSpeech.SUCCESS
     }
 
     private fun createEngine(): TextToSpeech =
@@ -138,13 +138,13 @@ class MessageTtsController(
         muted = !muted
     }
 
-    fun setRate(value: Float) {
+    fun updateRate(value: Float) {
         val clamped = value.coerceIn(MIN_SPEECH_RATE, MAX_SPEECH_RATE)
         rate = clamped
         tts?.setSpeechRate(clamped)
     }
 
-    fun setVolumeFraction(value: Float) {
+    fun updateVolumeFraction(value: Float) {
         val clamped = value.coerceIn(0f, 1f)
         val max = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
         val target = (clamped * max).toInt().coerceIn(0, max)
@@ -281,7 +281,7 @@ fun MessageTtsDialog(
                 }
                 Slider(
                     value = controller.rate,
-                    onValueChange = { controller.setRate(it) },
+                    onValueChange = { controller.updateRate(it) },
                     valueRange = 0.5f..2.0f,
                     modifier = Modifier.fillMaxWidth().testTag("tts_speed"),
                 )
@@ -292,7 +292,7 @@ fun MessageTtsDialog(
                 )
                 Slider(
                     value = controller.volumeFraction,
-                    onValueChange = { controller.setVolumeFraction(it) },
+                    onValueChange = { controller.updateVolumeFraction(it) },
                     valueRange = 0f..1f,
                     modifier = Modifier.fillMaxWidth().testTag("tts_volume"),
                 )

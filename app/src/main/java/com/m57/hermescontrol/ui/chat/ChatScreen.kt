@@ -808,25 +808,30 @@ fun ChatScreen(
                             onRetryMessage = { message ->
                                 val feedback =
                                     when (viewModel.retryMessage(message.id)) {
-                                        ChatViewModel.MessageRetryResult.RESENT ->
+                                        ChatViewModel.MessageRetryResult.RESENT -> {
                                             R.string.chat_msg_retry_sent
+                                        }
 
-                                        ChatViewModel.MessageRetryResult.BUSY ->
+                                        ChatViewModel.MessageRetryResult.BUSY -> {
                                             R.string.chat_msg_retry_busy
+                                        }
 
-                                        else ->
+                                        else -> {
                                             R.string.chat_msg_retry_no_prompt
+                                        }
                                     }
                                 scrollScope.launch { snackbarHostState.showSnackbar(context.getString(feedback)) }
                             },
                             onRevertMessage = { message ->
                                 val feedback =
                                     when (viewModel.revertToMessage(message.id)) {
-                                        ChatViewModel.MessageRevertResult.PREFILLED ->
+                                        ChatViewModel.MessageRevertResult.PREFILLED -> {
                                             R.string.chat_msg_revert_prefilled
+                                        }
 
-                                        ChatViewModel.MessageRevertResult.NO_PROMPT ->
+                                        ChatViewModel.MessageRevertResult.NO_PROMPT -> {
                                             R.string.chat_msg_revert_no_prompt
+                                        }
                                     }
                                 scrollScope.launch { snackbarHostState.showSnackbar(context.getString(feedback)) }
                             },
